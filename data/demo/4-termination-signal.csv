@@ -1,0 +1,2 @@
+employeeId,name,email,location,willingToRelocate,costRate,currency,portfolioCode,skills,certifications,action
+E1009,Ingrid Sorensen,ingrid.sorensen@corp.com,Denver US,false,140,USD,PS,,,TERMINATE

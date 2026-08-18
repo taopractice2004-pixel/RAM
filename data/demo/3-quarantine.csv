@@ -1,0 +1,4 @@
+employeeId,name,email,location,willingToRelocate,costRate,currency,portfolioCode,skills,certifications,action
+E3004,Sofia Lindqvist,sofia.lindqvist@corp.com,,false,125,USD,FIN,SQL:3:3,,
+E3005,Derek Osei,derek.osei@corp.com,Toronto CA,false,133,USD,XYZ,Java:4:4,,
+E3006,Wei Zhang,wei.zhang@corp.com,Shanghai CN,true,N/A,USD,PS,Python:4:4,,

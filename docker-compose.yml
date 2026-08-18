@@ -1,0 +1,61 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ram_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ram_user
+      POSTGRES_PASSWORD: ram_password
+      POSTGRES_DB: ram_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - ram_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ram_user -d ram_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  adminer:
+    image: adminer:latest
+    container_name: ram_adminer
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    depends_on:
+      - postgres
+
+  backend:
+    build:
+      context: ./backend
+    container_name: ram_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://ram_user:ram_password@postgres:5432/ram_db?schema=public
+      JWT_SECRET: dev-secret-change-me
+      PORT: 4000
+      NODE_ENV: production
+      HRMIS_INPUT_SHEET: /app/data/hrmis_import.csv
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:4000/api
+    container_name: ram_frontend
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  ram_pgdata:

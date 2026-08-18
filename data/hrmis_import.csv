@@ -1,0 +1,5 @@
+employeeId,name,email,location,willingToRelocate,costRate,currency,portfolioCode,skills,certifications,action
+E2001,Nadia Fischer,nadia.fischer@corp.com,Miami US,true,128,USD,FIN,React:4:4;AWS:3:2,,
+E1004,Devon Park,devon.park@corp.com,Remote,true,133,USD,FIN,AWS:5:5;DevOps:4:5,AWS Certified Solutions Architect:AWS:2023-06-01,
+E2002,Oscar Bennett,oscar.bennett@corp.com,,false,,USD,FIN,Java:3:3,,
+E1012,Liam O'Connor,liam.oconnor@corp.com,Dublin IE,false,118,USD,PS,,,TERMINATE

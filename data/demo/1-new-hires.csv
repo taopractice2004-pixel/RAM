@@ -1,0 +1,4 @@
+employeeId,name,email,location,willingToRelocate,costRate,currency,portfolioCode,skills,certifications,action
+E3001,Marcus Webb,marcus.webb@corp.com,Denver US,true,138,USD,FIN,React:4:4;AWS:3:2,,
+E3002,Priya Chandran,priya.chandran@corp.com,Remote,false,142,USD,HC,Data Science:4:5;Python:5:6,,
+E3003,Tomas Novak,tomas.novak@corp.com,Prague CZ,true,120,USD,PS,Salesforce:3:3;Change Management:3:2,,

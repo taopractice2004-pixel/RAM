@@ -1,0 +1,4 @@
+employeeId,name,email,location,willingToRelocate,costRate,currency,portfolioCode,skills,certifications,action
+E1002,Brian Walsh,brian.walsh@corp.com,Chicago US,false,138,USD,FIN,Java:5:9;SQL:5:9,AWS Certified Developer:AWS:2024-03-01,
+E1006,Farid Haidari,farid.haidari@corp.com,Seattle US,true,142,USD,HC,React:5:5;Node.js:4:4;AWS:3:1,,
+E1010,Jamal Robinson,jamal.robinson@corp.com,Remote,true,131,USD,FIN,Java:4:4;Project Management:4:3,,

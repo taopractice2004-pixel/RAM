@@ -1,0 +1,333 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Enums ----------
+
+enum RoleName {
+  ADMIN
+  RMG
+  DELIVERY
+  HR
+  TA
+  VIEWER
+}
+
+enum ResourceStatus {
+  AVAILABLE
+  ALLOCATED
+  BENCH_COMMITTED
+  BENCH_TRUE
+  TERMINATED
+}
+
+enum AllocationStatus {
+  SCHEDULED
+  ACTIVE
+  CLOSED
+  CANCELLED
+}
+
+enum ImportRecordStatus {
+  CREATED
+  UPDATED
+  QUARANTINED
+}
+
+enum ImportBatchStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum TerminationStatus {
+  PENDING_HR_APPROVAL
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+enum ProjectStatus {
+  PLANNED
+  ACTIVE
+  CLOSED
+}
+
+enum NotificationType {
+  REALLOCATION
+  BENCH_AGING
+  TERMINATION
+  TERMINATION_APPROVAL_NEEDED
+  IMPORT_QUARANTINE
+  BLOCKED_ACTION
+  UNMET_DEMAND
+}
+
+// ---------- Core access-control models ----------
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String
+  name          String
+  role          RoleName
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  portfolioAuthorizations PortfolioAuthorization[] @relation("UserAuthorizations")
+  grantedAuthorizations   PortfolioAuthorization[] @relation("GrantedBy")
+  createdAllocations      Allocation[]              @relation("AllocationCreatedBy")
+  auditLogs               AuditLog[]
+  notifications           Notification[]
+  initiatedTerminations   TerminationRequest[]      @relation("TerminationInitiator")
+  decidedTerminations     TerminationRequest[]      @relation("TerminationApprover")
+}
+
+model Portfolio {
+  id        String   @id @default(uuid())
+  name      String
+  code      String   @unique
+  createdAt DateTime @default(now())
+
+  resources       Resource[]
+  projects        Project[]
+  authorizations  PortfolioAuthorization[]
+  benchConfig     BenchConfig?
+  allocations     Allocation[] @relation("AllocationPortfolio")
+}
+
+model PortfolioAuthorization {
+  id          String    @id @default(uuid())
+  userId      String
+  portfolioId String
+  isActive    Boolean   @default(true)
+  grantedById String?
+  grantedAt   DateTime  @default(now())
+  revokedAt   DateTime?
+
+  user      User      @relation("UserAuthorizations", fields: [userId], references: [id])
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id])
+  grantedBy User?     @relation("GrantedBy", fields: [grantedById], references: [id])
+
+  @@unique([userId, portfolioId])
+}
+
+// ---------- Resource repository ----------
+
+model Resource {
+  id               String         @id @default(uuid())
+  employeeId       String         @unique
+  name             String
+  email            String
+  location         String
+  willingToRelocate Boolean       @default(false)
+  costRate         Decimal        @db.Decimal(10, 2)
+  currency         String         @default("USD")
+  portfolioId      String
+  status           ResourceStatus @default(AVAILABLE)
+  benchSince       DateTime?
+  sourceSystem     String         @default("MANUAL")
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  portfolio         Portfolio           @relation(fields: [portfolioId], references: [id])
+  skills            ResourceSkill[]
+  certifications    Certification[]
+  performanceRecords PerformanceRecord[]
+  allocations       Allocation[]
+  terminationRequests TerminationRequest[]
+  importRecords     ImportRecord[]
+}
+
+model Skill {
+  id   String @id @default(uuid())
+  name String @unique
+
+  resources ResourceSkill[]
+}
+
+model ResourceSkill {
+  id              String @id @default(uuid())
+  resourceId      String
+  skillId         String
+  proficiency     Int    @default(3) // 1-5
+  yearsExperience Float  @default(0)
+
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  skill    Skill    @relation(fields: [skillId], references: [id])
+
+  @@unique([resourceId, skillId])
+}
+
+model Certification {
+  id         String    @id @default(uuid())
+  resourceId String
+  name       String
+  issuer     String?
+  issueDate  DateTime?
+  expiryDate DateTime?
+
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@unique([resourceId, name])
+}
+
+model PerformanceRecord {
+  id           String   @id @default(uuid())
+  resourceId   String
+  rating       String // e.g. Exceeds / Meets / Below
+  pipStatus    Boolean  @default(false)
+  reviewDate   DateTime
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+}
+
+// ---------- Projects / Allocation ----------
+
+model Project {
+  id          String        @id @default(uuid())
+  name        String
+  code        String        @unique
+  portfolioId String
+  status      ProjectStatus @default(ACTIVE)
+  startDate   DateTime
+  endDate     DateTime?
+
+  portfolio   Portfolio    @relation(fields: [portfolioId], references: [id])
+  tasks       Task[]
+  allocations Allocation[]
+}
+
+model Task {
+  id        String    @id @default(uuid())
+  projectId String
+  name      String
+  startDate DateTime
+  endDate   DateTime?
+
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  allocations Allocation[]
+}
+
+model Allocation {
+  id                 String           @id @default(uuid())
+  resourceId         String
+  projectId          String
+  taskId             String?
+  portfolioId        String
+  allocationPercent  Int
+  startDate          DateTime
+  endDate            DateTime?
+  status             AllocationStatus @default(SCHEDULED)
+  createdById        String
+  notes              String?
+  reallocatedFromId  String?          @unique
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  resource        Resource    @relation(fields: [resourceId], references: [id])
+  project         Project     @relation(fields: [projectId], references: [id])
+  task            Task?       @relation(fields: [taskId], references: [id])
+  portfolio       Portfolio   @relation(fields: [portfolioId], references: [id], name: "AllocationPortfolio")
+  createdBy       User        @relation("AllocationCreatedBy", fields: [createdById], references: [id])
+  reallocatedFrom Allocation? @relation("ReallocationChain", fields: [reallocatedFromId], references: [id])
+  reallocatedTo   Allocation? @relation("ReallocationChain")
+}
+
+// ---------- Bench config ----------
+
+model BenchConfig {
+  id                          String     @id @default(uuid())
+  portfolioId                 String?    @unique
+  committedWindowDays         Int        @default(14)
+  trueBenchAgingThresholdDays Int        @default(30)
+
+  portfolio Portfolio? @relation(fields: [portfolioId], references: [id])
+}
+
+// ---------- Termination ----------
+
+model TerminationRequest {
+  id             String            @id @default(uuid())
+  resourceId     String
+  initiatedById  String
+  reasonCode     String
+  reason         String?
+  status         TerminationStatus @default(PENDING_HR_APPROVAL)
+  hrApproverId   String?
+  decidedAt      DateTime?
+  createdAt      DateTime          @default(now())
+
+  resource    Resource @relation(fields: [resourceId], references: [id])
+  initiatedBy User     @relation("TerminationInitiator", fields: [initiatedById], references: [id])
+  hrApprover  User?    @relation("TerminationApprover", fields: [hrApproverId], references: [id])
+}
+
+// ---------- Import / Sync ----------
+
+model ImportBatch {
+  id               String            @id @default(uuid())
+  source           String // HRMIS or MANUAL
+  status           ImportBatchStatus @default(RUNNING)
+  createdCount     Int               @default(0)
+  updatedCount     Int               @default(0)
+  quarantinedCount Int               @default(0)
+  startedAt        DateTime          @default(now())
+  completedAt      DateTime?
+
+  records ImportRecord[]
+}
+
+model ImportRecord {
+  id         String             @id @default(uuid())
+  batchId    String
+  employeeId String
+  rawData    Json
+  status     ImportRecordStatus
+  errors     Json?
+  resourceId String?
+  createdAt  DateTime           @default(now())
+
+  batch    ImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  resource Resource?   @relation(fields: [resourceId], references: [id])
+}
+
+// ---------- Notifications & Audit ----------
+
+model Notification {
+  id                 String           @id @default(uuid())
+  userId             String
+  type               NotificationType
+  message            String
+  relatedEntityType  String?
+  relatedEntityId    String?
+  read               Boolean          @default(false)
+  createdAt          DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  actorId     String?
+  action      String
+  entityType  String
+  entityId    String?
+  portfolioId String?
+  before      Json?
+  after       Json?
+  reason      String?
+  success     Boolean  @default(true)
+  message     String?
+  createdAt   DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id])
+}
