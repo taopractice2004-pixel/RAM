@@ -5,6 +5,7 @@ import { requireRole, assertPortfolioAuthorized, hasFullPortfolioBypass } from "
 import { writeAudit } from "../utils/audit";
 import { portfolioReadWhere } from "../utils/scope";
 import { reclassifyResourceBenchStatus } from "../services/benchService";
+import { deriveDefaultSubCategory } from "../utils/resourcePresentation";
 
 const router = Router();
 
@@ -44,6 +45,7 @@ router.post("/", requireRole("ADMIN", "RMG", "HR"), async (req, res) => {
   const resource = await prisma.resource.findUnique({ where: { id: resourceId } });
   if (!resource) return res.status(404).json({ error: "Resource not found" });
   if (resource.status === "TERMINATED") return res.status(400).json({ error: "Resource is already terminated" });
+  if (resource.status === "ON_ML") return res.status(400).json({ error: "Resource on maternity leave cannot be terminated" });
 
   if (req.user!.role === "RMG") {
     const authorized = await assertPortfolioAuthorized(req, res, [resource.portfolioId], "Resource", resourceId);
@@ -171,7 +173,10 @@ router.post("/:id/reject", requireRole("HR"), async (req, res) => {
 /** FR-5.3 / FR-5.4: apply the state change, retaining historical data, and log the audit event. */
 async function applyTermination(resourceId: string, requestId: string, actorId: string, reasonCode: string) {
   const before = await prisma.resource.findUnique({ where: { id: resourceId } });
-  const resource = await prisma.resource.update({ where: { id: resourceId }, data: { status: "TERMINATED" } });
+  const resource = await prisma.resource.update({
+    where: { id: resourceId },
+    data: { status: "TERMINATED", subCategory: deriveDefaultSubCategory({ status: "TERMINATED", subCategory: before?.subCategory ?? null }) },
+  });
   await prisma.terminationRequest.update({ where: { id: requestId }, data: { status: "COMPLETED" } });
 
   await writeAudit({

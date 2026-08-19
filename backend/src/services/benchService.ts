@@ -1,8 +1,10 @@
 import { prisma } from "../prisma";
 import { writeAudit } from "../utils/audit";
+import { deriveDefaultSubCategory } from "../utils/resourcePresentation";
 
 const DEFAULT_COMMITTED_WINDOW_DAYS = 14;
 const DEFAULT_TRUE_BENCH_THRESHOLD_DAYS = 30;
+const DEFAULT_AVAILABLE_TO_BENCH_DAYS = 60;
 
 export async function getBenchConfig(portfolioId: string) {
   const specific = await prisma.benchConfig.findUnique({ where: { portfolioId } });
@@ -19,7 +21,7 @@ export async function getBenchConfig(portfolioId: string) {
  */
 export async function reclassifyResourceBenchStatus(resourceId: string, actorId?: string | null) {
   const resource = await prisma.resource.findUnique({ where: { id: resourceId } });
-  if (!resource || resource.status === "TERMINATED") return;
+  if (!resource || resource.status === "TERMINATED" || resource.status === "ON_ML") return;
 
   const activeAllocation = await prisma.allocation.findFirst({
     where: { resourceId, status: "ACTIVE" },
@@ -48,7 +50,7 @@ export async function reclassifyResourceBenchStatus(resourceId: string, actorId?
 
   const updated = await prisma.resource.update({
     where: { id: resourceId },
-    data: { status: newStatus, benchSince },
+    data: { status: newStatus, benchSince, subCategory: deriveDefaultSubCategory({ status: newStatus, subCategory: resource.subCategory }) },
   });
 
   await writeAudit({
@@ -60,6 +62,38 @@ export async function reclassifyResourceBenchStatus(resourceId: string, actorId?
     before,
     after: { status: updated.status, benchSince: updated.benchSince },
   });
+}
+
+export async function reclassifyAvailableResourcesFromDateOfJoining(actorId?: string | null) {
+  const now = new Date();
+  const candidates = await prisma.resource.findMany({
+    where: { status: "AVAILABLE", dateOfJoining: { not: null } },
+  });
+
+  for (const resource of candidates) {
+    const daysSinceJoining = (now.getTime() - resource.dateOfJoining!.getTime()) / (1000 * 60 * 60 * 24);
+    if (daysSinceJoining < DEFAULT_AVAILABLE_TO_BENCH_DAYS) continue;
+
+    await prisma.resource.update({
+      where: { id: resource.id },
+      data: {
+        status: "BENCH_TRUE",
+        benchSince: resource.benchSince ?? resource.dateOfJoining,
+        subCategory: deriveDefaultSubCategory({ status: "BENCH_TRUE", subCategory: resource.subCategory }),
+      },
+    });
+
+    await writeAudit({
+      actorId: actorId ?? null,
+      action: "AUTO_MOVE_AVAILABLE_TO_BENCH",
+      entityType: "Resource",
+      entityId: resource.id,
+      portfolioId: resource.portfolioId,
+      before: { status: resource.status, benchSince: resource.benchSince },
+      after: { status: "BENCH_TRUE", benchSince: resource.benchSince ?? resource.dateOfJoining },
+      message: `Resource moved from AVAILABLE to BENCH_TRUE after ${DEFAULT_AVAILABLE_TO_BENCH_DAYS}+ days from DOJ without an assignment`,
+    });
+  }
 }
 
 /** FR-4.3 / FR-11.3: alert RMG (and TA) when a resource ages on True Bench past threshold. */
@@ -110,8 +144,18 @@ export async function processAllocationTransitions() {
     where: { status: "SCHEDULED", startDate: { lte: now } },
   });
   for (const allocation of startingAllocations) {
-    await prisma.allocation.update({ where: { id: allocation.id }, data: { status: "ACTIVE" } });
-    await prisma.resource.update({ where: { id: allocation.resourceId }, data: { status: "ALLOCATED", benchSince: null } });
+    const updatedAllocation = await prisma.allocation.update({ where: { id: allocation.id }, data: { status: "ACTIVE" }, include: { project: true } });
+    await prisma.resource.update({
+      where: { id: allocation.resourceId },
+      data: {
+        status: "ALLOCATED",
+        benchSince: null,
+        subCategory: deriveDefaultSubCategory(
+          { status: "ALLOCATED", subCategory: null },
+          { isInternalProject: updatedAllocation.project.isInternalProject, billingDelayed: updatedAllocation.project.billingDelayed }
+        ),
+      },
+    });
     await writeAudit({
       action: "ALLOCATION_AUTO_ACTIVATE",
       entityType: "Allocation",
@@ -133,4 +177,6 @@ export async function processAllocationTransitions() {
     });
     await reclassifyResourceBenchStatus(allocation.resourceId);
   }
+
+  await reclassifyAvailableResourcesFromDateOfJoining();
 }

@@ -23,6 +23,7 @@ enum ResourceStatus {
   ALLOCATED
   BENCH_COMMITTED
   BENCH_TRUE
+  ON_ML
   TERMINATED
 }
 
@@ -52,6 +53,13 @@ enum TerminationStatus {
   COMPLETED
 }
 
+enum ApprovalStatus {
+  PENDING_HR_APPROVAL
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
 enum ProjectStatus {
   PLANNED
   ACTIVE
@@ -63,9 +71,17 @@ enum NotificationType {
   BENCH_AGING
   TERMINATION
   TERMINATION_APPROVAL_NEEDED
+  ML_APPROVAL_NEEDED
   IMPORT_QUARANTINE
   BLOCKED_ACTION
   UNMET_DEMAND
+}
+
+enum Gender {
+  FEMALE
+  MALE
+  OTHER
+  UNDISCLOSED
 }
 
 // ---------- Core access-control models ----------
@@ -87,12 +103,15 @@ model User {
   notifications           Notification[]
   initiatedTerminations   TerminationRequest[]      @relation("TerminationInitiator")
   decidedTerminations     TerminationRequest[]      @relation("TerminationApprover")
+  initiatedMlRequests     MaternityLeaveRequest[]   @relation("MlInitiator")
+  decidedMlRequests       MaternityLeaveRequest[]   @relation("MlApprover")
 }
 
 model Portfolio {
   id        String   @id @default(uuid())
   name      String
   code      String   @unique
+  managerName String?
   createdAt DateTime @default(now())
 
   resources       Resource[]
@@ -125,11 +144,19 @@ model Resource {
   employeeId       String         @unique
   name             String
   email            String
+  gender           Gender           @default(UNDISCLOSED)
+  country          String?
+  workLocation     String?
   location         String
   willingToRelocate Boolean       @default(false)
   costRate         Decimal        @db.Decimal(10, 2)
   currency         String         @default("USD")
   portfolioId      String
+  managerName      String?
+  designation      String?
+  subCategory      String?
+  dateOfJoining    DateTime?
+  priorExperienceYears Float      @default(0)
   status           ResourceStatus @default(AVAILABLE)
   benchSince       DateTime?
   sourceSystem     String         @default("MANUAL")
@@ -142,6 +169,7 @@ model Resource {
   performanceRecords PerformanceRecord[]
   allocations       Allocation[]
   terminationRequests TerminationRequest[]
+  maternityLeaveRequests MaternityLeaveRequest[]
   importRecords     ImportRecord[]
 }
 
@@ -197,6 +225,8 @@ model Project {
   name        String
   code        String        @unique
   portfolioId String
+  billingDelayed Boolean    @default(false)
+  isInternalProject Boolean @default(false)
   status      ProjectStatus @default(ACTIVE)
   startDate   DateTime
   endDate     DateTime?
@@ -224,6 +254,8 @@ model Allocation {
   taskId             String?
   portfolioId        String
   allocationPercent  Int
+  roleOnProject      String?
+  projectReportingManagerName String?
   startDate          DateTime
   endDate            DateTime?
   status             AllocationStatus @default(SCHEDULED)
@@ -269,6 +301,21 @@ model TerminationRequest {
   resource    Resource @relation(fields: [resourceId], references: [id])
   initiatedBy User     @relation("TerminationInitiator", fields: [initiatedById], references: [id])
   hrApprover  User?    @relation("TerminationApprover", fields: [hrApproverId], references: [id])
+}
+
+model MaternityLeaveRequest {
+  id             String         @id @default(uuid())
+  resourceId     String
+  initiatedById  String
+  reason         String?
+  status         ApprovalStatus @default(PENDING_HR_APPROVAL)
+  hrApproverId   String?
+  decidedAt      DateTime?
+  createdAt      DateTime       @default(now())
+
+  resource    Resource @relation(fields: [resourceId], references: [id])
+  initiatedBy User     @relation("MlInitiator", fields: [initiatedById], references: [id])
+  hrApprover  User?    @relation("MlApprover", fields: [hrApproverId], references: [id])
 }
 
 // ---------- Import / Sync ----------

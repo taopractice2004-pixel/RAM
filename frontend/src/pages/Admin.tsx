@@ -270,7 +270,7 @@ function ImportsTab() {
         <textarea
           className="input font-mono text-xs"
           rows={4}
-          placeholder="employeeId,name,email,location,willingToRelocate,costRate,currency,portfolioCode,skills,certifications,action"
+          placeholder="employeeId,name,email,gender,country,workLocation,location,costRate,currency,portfolioCode,managerName,designation,subCategory,dateOfJoining,totalYoe,taoExperience,skills,certifications,action"
           value={csvText}
           onChange={(e) => setCsvText(e.target.value)}
         />

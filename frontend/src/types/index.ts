@@ -1,10 +1,13 @@
 export type RoleName = "ADMIN" | "RMG" | "DELIVERY" | "HR" | "TA" | "VIEWER";
+export type Gender = "FEMALE" | "MALE" | "OTHER" | "UNDISCLOSED";
 
-export type ResourceStatus = "AVAILABLE" | "ALLOCATED" | "BENCH_COMMITTED" | "BENCH_TRUE" | "TERMINATED";
+export type ResourceStatus = "AVAILABLE" | "ALLOCATED" | "BENCH_COMMITTED" | "BENCH_TRUE" | "ON_ML" | "TERMINATED";
 
 export type AllocationStatus = "SCHEDULED" | "ACTIVE" | "CLOSED" | "CANCELLED";
 
 export type TerminationStatus = "PENDING_HR_APPROVAL" | "APPROVED" | "REJECTED" | "COMPLETED";
+
+export type ApprovalRequestType = "TERMINATION" | "ML";
 
 export interface AuthUser {
   id: string;
@@ -18,6 +21,7 @@ export interface Portfolio {
   id: string;
   name: string;
   code: string;
+  managerName?: string | null;
 }
 
 export interface Skill {
@@ -54,11 +58,21 @@ export interface Resource {
   employeeId: string;
   name: string;
   email: string;
+  gender?: Gender;
+  country?: string | null;
+  workLocation?: string | null;
   location: string;
   willingToRelocate: boolean;
   costRate: string | null;
   currency: string;
   portfolioId: string;
+  managerName?: string | null;
+  designation?: string | null;
+  subCategory?: string | null;
+  dateOfJoining?: string | null;
+  priorExperienceYears?: number;
+  taoExperienceYears?: number;
+  totalYearsExperience?: number;
   status: ResourceStatus;
   benchSince: string | null;
   sourceSystem: string;
@@ -69,6 +83,11 @@ export interface Resource {
   allocations?: Allocation[];
   daysOnBench?: number | null;
   nextScheduledAllocation?: Allocation | null;
+  projectedBenchStartDate?: string | null;
+  totalAllocatedPercent?: number;
+  availablePercentForDeployment?: number;
+  overallFte?: number;
+  empCount?: number;
 }
 
 export interface Project {
@@ -76,9 +95,13 @@ export interface Project {
   name: string;
   code: string;
   portfolioId: string;
+  billingDelayed?: boolean;
+  isInternalProject?: boolean;
   status: string;
   startDate: string;
   endDate: string | null;
+  portfolio?: Portfolio;
+  tasks?: Task[];
 }
 
 export interface Task {
@@ -94,6 +117,8 @@ export interface Allocation {
   taskId: string | null;
   portfolioId: string;
   allocationPercent: number;
+  roleOnProject?: string | null;
+  projectReportingManagerName?: string | null;
   startDate: string;
   endDate: string | null;
   status: AllocationStatus;
@@ -107,6 +132,7 @@ export interface Allocation {
 export interface TerminationRequest {
   id: string;
   resourceId: string;
+  requestType?: ApprovalRequestType;
   reasonCode: string;
   reason: string | null;
   status: TerminationStatus;
@@ -116,6 +142,21 @@ export interface TerminationRequest {
   initiatedBy: { id: string; name: string };
   hrApprover: { id: string; name: string } | null;
 }
+
+export interface MaternityLeaveRequest {
+  id: string;
+  resourceId: string;
+  requestType?: ApprovalRequestType;
+  reason: string | null;
+  status: TerminationStatus;
+  createdAt: string;
+  decidedAt: string | null;
+  resource: Resource;
+  initiatedBy: { id: string; name: string };
+  hrApprover: { id: string; name: string } | null;
+}
+
+export type ApprovalRequest = TerminationRequest | MaternityLeaveRequest;
 
 export interface Notification {
   id: string;
@@ -159,6 +200,7 @@ export interface DashboardSummary {
     allocated: number;
     benchCommitted: number;
     benchTrue: number;
+    onMl?: number;
     agingTrueBench: number;
     utilizationRate: number;
   }[];

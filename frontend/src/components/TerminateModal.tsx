@@ -67,7 +67,7 @@ export default function TerminateModal({ resource, onClose }: { resource: Resour
         )}
         {error && <div className="text-sm text-red-600">{error}</div>}
         <p className="text-xs text-slate-400">
-          HR approval is required before this takes effect, unless you are signed in as HR.
+          RMG-initiated terminations require HR approval. HR and Admin requests complete immediately after confirmation.
         </p>
 
         <div className="flex justify-end gap-2 pt-2">

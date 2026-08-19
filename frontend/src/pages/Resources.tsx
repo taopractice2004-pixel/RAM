@@ -6,7 +6,7 @@ import { Portfolio, Resource } from "../types";
 import StatusBadge from "../components/StatusBadge";
 import { useAuth } from "../context/AuthContext";
 
-const STATUS_OPTIONS = ["AVAILABLE", "ALLOCATED", "BENCH_COMMITTED", "BENCH_TRUE", "TERMINATED"];
+const STATUS_OPTIONS = ["AVAILABLE", "ALLOCATED", "BENCH_COMMITTED", "BENCH_TRUE", "ON_ML", "TERMINATED"];
 // Section 5.3: Delivery/TA/Viewer never see cost data, so a cost filter would be a blind oracle for them.
 const COST_VISIBLE_ROLES = ["ADMIN", "RMG", "HR"];
 
@@ -17,6 +17,7 @@ export default function Resources() {
   const [q, setQ] = useState("");
   const [skills, setSkills] = useState("");
   const [location, setLocation] = useState("");
+  const [manager, setManager] = useState("");
   const [maxCost, setMaxCost] = useState("");
   const [portfolioId, setPortfolioId] = useState("");
   const [statuses, setStatuses] = useState<string[]>([]);
@@ -27,12 +28,12 @@ export default function Resources() {
   });
 
   const { data, isLoading } = useQuery<{ total: number; resources: Resource[] }>({
-    queryKey: ["resources", q, skills, location, maxCost, portfolioId, statuses],
+    queryKey: ["resources", q, skills, location, manager, maxCost, portfolioId, statuses],
     queryFn: async () =>
       (
         await api.get("/resources", {
           params: {
-            q: q || undefined,
+            q: [q, manager].filter(Boolean).join(" ") || undefined,
             skills: skills || undefined,
             location: location || undefined,
             maxCost: maxCost || undefined,
@@ -55,7 +56,7 @@ export default function Resources() {
         <p className="text-sm text-slate-500">Search and filter by skill, experience, cost, location, and availability.</p>
       </div>
 
-      <div className="card p-4 grid grid-cols-1 md:grid-cols-5 gap-3">
+      <div className="card p-4 grid grid-cols-1 md:grid-cols-6 gap-3">
         <div>
           <label className="label">Search (name/email/ID)</label>
           <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Alicia Chen" />
@@ -67,6 +68,10 @@ export default function Resources() {
         <div>
           <label className="label">Location</label>
           <input className="input" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Remote" />
+        </div>
+        <div>
+          <label className="label">Manager</label>
+          <input className="input" value={manager} onChange={(e) => setManager(e.target.value)} placeholder="Venkat" />
         </div>
         {canViewCost && (
           <div>
@@ -108,7 +113,16 @@ export default function Resources() {
               <th className="py-2 px-4">Name</th>
               <th className="py-2 px-4">Employee ID</th>
               <th className="py-2 px-4">Portfolio</th>
+              <th className="py-2 px-4">Manager</th>
+              <th className="py-2 px-4">Designation</th>
+              <th className="py-2 px-4">Gender</th>
+              <th className="py-2 px-4">Country</th>
               <th className="py-2 px-4">Location</th>
+              <th className="py-2 px-4">Sub Category</th>
+              <th className="py-2 px-4">TAO Exp</th>
+              <th className="py-2 px-4">Total YOE</th>
+              <th className="py-2 px-4">Avail %</th>
+              <th className="py-2 px-4">FTE</th>
               <th className="py-2 px-4">Skills</th>
               {canViewCost && <th className="py-2 px-4">Cost Rate</th>}
               <th className="py-2 px-4">Status</th>
@@ -117,7 +131,7 @@ export default function Resources() {
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={canViewCost ? 7 : 6} className="py-6 text-center text-slate-400">
+                <td colSpan={canViewCost ? 15 : 14} className="py-6 text-center text-slate-400">
                   Loading...
                 </td>
               </tr>
@@ -131,7 +145,16 @@ export default function Resources() {
                 <td className="py-2 px-4 font-medium text-slate-800">{r.name}</td>
                 <td className="py-2 px-4 text-slate-500">{r.employeeId}</td>
                 <td className="py-2 px-4">{r.portfolio?.name}</td>
-                <td className="py-2 px-4">{r.location}</td>
+                <td className="py-2 px-4">{r.managerName || "—"}</td>
+                <td className="py-2 px-4">{r.designation || "—"}</td>
+                <td className="py-2 px-4">{r.gender || "UNDISCLOSED"}</td>
+                <td className="py-2 px-4">{r.country || "—"}</td>
+                <td className="py-2 px-4">{r.workLocation || r.location}</td>
+                <td className="py-2 px-4">{r.subCategory || "—"}</td>
+                <td className="py-2 px-4">{r.taoExperienceYears?.toFixed(1) ?? "0.0"}</td>
+                <td className="py-2 px-4">{r.totalYearsExperience?.toFixed(1) ?? "0.0"}</td>
+                <td className="py-2 px-4">{r.availablePercentForDeployment ?? 100}%</td>
+                <td className="py-2 px-4">{r.overallFte?.toFixed(1) ?? "1.0"}</td>
                 <td className="py-2 px-4">
                   <div className="flex flex-wrap gap-1">
                     {r.skills.slice(0, 3).map((s) => (
@@ -152,7 +175,7 @@ export default function Resources() {
             ))}
             {!isLoading && data?.resources.length === 0 && (
               <tr>
-                <td colSpan={canViewCost ? 7 : 6} className="py-6 text-center text-slate-400">
+                <td colSpan={canViewCost ? 15 : 14} className="py-6 text-center text-slate-400">
                   No resources match these filters.
                 </td>
               </tr>

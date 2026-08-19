@@ -9,6 +9,7 @@ const STATUS_LABELS: Record<string, string> = {
   ALLOCATED: "Allocated",
   BENCH_COMMITTED: "Bench (Committed)",
   BENCH_TRUE: "Bench (True)",
+  ON_ML: "On ML",
   TERMINATED: "Terminated",
 };
 
@@ -89,6 +90,7 @@ export default function Dashboard() {
               <th className="py-2 pr-4">Allocated</th>
               <th className="py-2 pr-4">Bench (Committed)</th>
               <th className="py-2 pr-4">Bench (True)</th>
+              <th className="py-2 pr-4">On ML</th>
               <th className="py-2 pr-4">Aging Past Threshold</th>
               <th className="py-2 pr-4">Utilization</th>
             </tr>
@@ -101,6 +103,7 @@ export default function Dashboard() {
                 <td className="py-2 pr-4">{p.allocated}</td>
                 <td className="py-2 pr-4">{p.benchCommitted}</td>
                 <td className="py-2 pr-4">{p.benchTrue}</td>
+                <td className="py-2 pr-4">{p.onMl ?? 0}</td>
                 <td className="py-2 pr-4">{p.agingTrueBench > 0 ? <span className="text-red-600 font-medium">{p.agingTrueBench}</span> : 0}</td>
                 <td className="py-2 pr-4">{p.utilizationRate}%</td>
               </tr>

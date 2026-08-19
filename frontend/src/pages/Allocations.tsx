@@ -23,7 +23,10 @@ export default function Allocations() {
             <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
               <th className="py-2 px-4">Resource</th>
               <th className="py-2 px-4">Project</th>
+              <th className="py-2 px-4">Role</th>
+              <th className="py-2 px-4">Reporting Manager</th>
               <th className="py-2 px-4">%</th>
+              <th className="py-2 px-4">FTE</th>
               <th className="py-2 px-4">Start</th>
               <th className="py-2 px-4">End</th>
               <th className="py-2 px-4">Status</th>
@@ -33,7 +36,7 @@ export default function Allocations() {
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={7} className="py-6 text-center text-slate-400">
+                <td colSpan={10} className="py-6 text-center text-slate-400">
                   Loading...
                 </td>
               </tr>
@@ -46,7 +49,10 @@ export default function Allocations() {
                   </Link>
                 </td>
                 <td className="py-2 px-4">{a.project?.name}</td>
+                <td className="py-2 px-4">{a.roleOnProject || "—"}</td>
+                <td className="py-2 px-4">{a.projectReportingManagerName || "—"}</td>
                 <td className="py-2 px-4">{a.allocationPercent}%</td>
+                <td className="py-2 px-4">{(a.allocationPercent / 100).toFixed(2)}</td>
                 <td className="py-2 px-4">{new Date(a.startDate).toLocaleDateString()}</td>
                 <td className="py-2 px-4">{a.endDate ? new Date(a.endDate).toLocaleDateString() : "—"}</td>
                 <td className="py-2 px-4">
@@ -57,7 +63,7 @@ export default function Allocations() {
             ))}
             {!isLoading && allocations.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-6 text-center text-slate-400">
+                <td colSpan={10} className="py-6 text-center text-slate-400">
                   No allocations found.
                 </td>
               </tr>

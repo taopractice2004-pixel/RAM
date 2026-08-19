@@ -3,6 +3,7 @@ import { prisma } from "../prisma";
 import { portfolioReadWhere } from "../utils/scope";
 import { getBenchConfig } from "../services/benchService";
 import { toCsv } from "../utils/csv";
+import { deriveAllocationSummary, deriveBenchAgingDays, deriveTaoExperienceYears, deriveTotalYearsExperience } from "../utils/resourcePresentation";
 
 const router = Router();
 
@@ -27,15 +28,24 @@ router.get("/utilization", async (req, res) => {
   });
 
   const rows = resources.map((r) => {
-    const active = r.allocations.filter((a) => a.status === "ACTIVE");
-    const totalAllocatedPercent = active.reduce((sum, a) => sum + a.allocationPercent, 0);
+    const allocationSummary = deriveAllocationSummary(r.allocations);
     return {
       employeeId: r.employeeId,
       name: r.name,
       portfolio: r.portfolio.name,
+      managerName: r.managerName,
+      designation: r.designation,
+      country: r.country,
+      workLocation: r.workLocation,
+      subCategory: r.subCategory,
       status: r.status,
-      currentAllocationPercent: totalAllocatedPercent,
-      activeProjects: active.map((a) => a.project.name).join("; "),
+      taoExperienceYears: deriveTaoExperienceYears(r.dateOfJoining),
+      totalYearsExperience: deriveTotalYearsExperience(r.priorExperienceYears, r.dateOfJoining),
+      currentAllocationPercent: allocationSummary.totalAllocatedPercent,
+      availablePercentForDeployment: allocationSummary.availablePercentForDeployment,
+      overallFte: allocationSummary.overallFte,
+      empCount: allocationSummary.empCount,
+      activeProjects: r.allocations.filter((a) => a.status === "ACTIVE").map((a) => a.project.name).join("; "),
       totalAllocationsEver: r.allocations.length,
       lastAllocationStart: r.allocations[0]?.startDate?.toISOString().slice(0, 10) ?? "",
     };
@@ -51,17 +61,18 @@ router.get("/capacity", async (req, res) => {
     include: { portfolio: true, skills: { include: { skill: true } } },
   });
 
-  const byPortfolio = new Map<string, { portfolio: string; available: number; allocated: number; benchCommitted: number; benchTrue: number }>();
+  const byPortfolio = new Map<string, { portfolio: string; available: number; allocated: number; benchCommitted: number; benchTrue: number; onMl: number }>();
   for (const r of resources) {
     const key = r.portfolio.name;
     if (!byPortfolio.has(key)) {
-      byPortfolio.set(key, { portfolio: key, available: 0, allocated: 0, benchCommitted: 0, benchTrue: 0 });
+      byPortfolio.set(key, { portfolio: key, available: 0, allocated: 0, benchCommitted: 0, benchTrue: 0, onMl: 0 });
     }
     const entry = byPortfolio.get(key)!;
     if (r.status === "AVAILABLE") entry.available++;
     if (r.status === "ALLOCATED") entry.allocated++;
     if (r.status === "BENCH_COMMITTED") entry.benchCommitted++;
     if (r.status === "BENCH_TRUE") entry.benchTrue++;
+    if (r.status === "ON_ML") entry.onMl++;
   }
 
   respond(req, res, Array.from(byPortfolio.values()), "capacity_report.csv");
@@ -83,8 +94,10 @@ router.get("/bench-aging", async (req, res) => {
         employeeId: r.employeeId,
         name: r.name,
         portfolio: r.portfolio.name,
+        managerName: r.managerName,
+        subCategory: r.subCategory,
         classification: r.status,
-        daysOnBench: days,
+        daysOnBench: deriveBenchAgingDays(r) ?? days,
         agingPastThreshold: r.status === "BENCH_TRUE" && days >= config.trueBenchAgingThresholdDays,
       };
     })

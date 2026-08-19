@@ -7,7 +7,7 @@ import Resources from "./pages/Resources";
 import ResourceDetail from "./pages/ResourceDetail";
 import Allocations from "./pages/Allocations";
 import Bench from "./pages/Bench";
-import Terminations from "./pages/Terminations";
+import Approvals from "./pages/Approvals";
 import Reports from "./pages/Reports";
 import Admin from "./pages/Admin";
 
@@ -29,10 +29,10 @@ export default function App() {
         <Route path="allocations" element={<Allocations />} />
         <Route path="bench" element={<Bench />} />
         <Route
-          path="terminations"
+          path="approvals"
           element={
             <ProtectedRoute roles={["ADMIN", "RMG", "HR"]}>
-              <Terminations />
+              <Approvals />
             </ProtectedRoute>
           }
         />

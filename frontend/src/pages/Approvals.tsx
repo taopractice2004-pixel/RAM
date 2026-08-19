@@ -1,22 +1,23 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import { TerminationRequest } from "../types";
+import { ApprovalRequest } from "../types";
 import { useAuth } from "../context/AuthContext";
 import StatusBadge from "../components/StatusBadge";
 
-export default function Terminations() {
+export default function Approvals() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  const { data: requests = [], isLoading } = useQuery<TerminationRequest[]>({
-    queryKey: ["terminations"],
-    queryFn: async () => (await api.get("/terminations")).data,
+  const { data: requests = [], isLoading } = useQuery<ApprovalRequest[]>({
+    queryKey: ["approvals"],
+    queryFn: async () => (await api.get("/approvals")).data,
   });
 
-  async function decide(id: string, action: "approve" | "reject") {
-    await api.post(`/terminations/${id}/${action}`);
-    queryClient.invalidateQueries({ queryKey: ["terminations"] });
+  async function decide(request: ApprovalRequest, action: "approve" | "reject") {
+    const basePath = request.requestType === "ML" ? `/approvals/ml/${request.id}/${action}` : `/terminations/${request.id}/${action}`;
+    await api.post(basePath);
+    queryClient.invalidateQueries({ queryKey: ["approvals"] });
     queryClient.invalidateQueries({ queryKey: ["resources"] });
     queryClient.invalidateQueries({ queryKey: ["dashboard"] });
   }
@@ -24,16 +25,15 @@ export default function Terminations() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Termination / Offboarding Requests</h1>
-        <p className="text-sm text-slate-500">
-          HR approval is required for every termination regardless of who initiates it (Workflow 7.5).
-        </p>
+        <h1 className="text-xl font-semibold text-slate-900">Approvals</h1>
+        <p className="text-sm text-slate-500">Termination and maternity leave requests requiring workflow review.</p>
       </div>
 
       <div className="card overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
+              <th className="py-2 px-4">Type</th>
               <th className="py-2 px-4">Resource</th>
               <th className="py-2 px-4">Reason</th>
               <th className="py-2 px-4">Initiated By</th>
@@ -45,19 +45,20 @@ export default function Terminations() {
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={6} className="py-6 text-center text-slate-400">
+                <td colSpan={7} className="py-6 text-center text-slate-400">
                   Loading...
                 </td>
               </tr>
             )}
             {requests.map((r) => (
-              <tr key={r.id} className="border-b border-slate-100 last:border-0">
+              <tr key={`${r.requestType}-${r.id}`} className="border-b border-slate-100 last:border-0">
+                <td className="py-2 px-4 font-medium">{r.requestType === "ML" ? "Maternity Leave" : "Termination"}</td>
                 <td className="py-2 px-4">
                   <Link to={`/resources/${r.resourceId}`} className="text-brand-600 hover:underline font-medium">
                     {r.resource.name}
                   </Link>
                 </td>
-                <td className="py-2 px-4">{r.reasonCode.replace(/_/g, " ")}</td>
+                <td className="py-2 px-4">{"reasonCode" in r ? r.reasonCode.replace(/_/g, " ") : r.reason || "—"}</td>
                 <td className="py-2 px-4">{r.initiatedBy?.name}</td>
                 <td className="py-2 px-4">
                   <StatusBadge status={r.status} />
@@ -67,10 +68,10 @@ export default function Terminations() {
                   <td className="py-2 px-4">
                     {r.status === "PENDING_HR_APPROVAL" && (
                       <div className="flex gap-2">
-                        <button className="btn-primary" onClick={() => decide(r.id, "approve")}>
+                        <button className="btn-primary" onClick={() => decide(r, "approve")}>
                           Approve
                         </button>
-                        <button className="btn-secondary" onClick={() => decide(r.id, "reject")}>
+                        <button className="btn-secondary" onClick={() => decide(r, "reject")}>
                           Reject
                         </button>
                       </div>
@@ -81,8 +82,8 @@ export default function Terminations() {
             ))}
             {!isLoading && requests.length === 0 && (
               <tr>
-                <td colSpan={6} className="py-6 text-center text-slate-400">
-                  No termination requests.
+                <td colSpan={7} className="py-6 text-center text-slate-400">
+                  No approval requests.
                 </td>
               </tr>
             )}

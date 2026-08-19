@@ -3,6 +3,7 @@ const COLORS: Record<string, string> = {
   ALLOCATED: "bg-brand-100 text-brand-700",
   BENCH_COMMITTED: "bg-amber-100 text-amber-700",
   BENCH_TRUE: "bg-orange-100 text-orange-700",
+  ON_ML: "bg-fuchsia-100 text-fuchsia-700",
   TERMINATED: "bg-slate-200 text-slate-600",
   ACTIVE: "bg-brand-100 text-brand-700",
   SCHEDULED: "bg-amber-100 text-amber-700",

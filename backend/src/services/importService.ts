@@ -6,11 +6,21 @@ export interface RawImportRow {
   employeeId?: string;
   name?: string;
   email?: string;
+  gender?: string;
+  country?: string;
+  workLocation?: string;
   location?: string;
   willingToRelocate?: string;
   costRate?: string;
   currency?: string;
   portfolioCode?: string;
+  managerName?: string;
+  designation?: string;
+  subCategory?: string;
+  dateOfJoining?: string;
+  priorExperienceYears?: string;
+  totalYoe?: string;
+  taoExperience?: string;
   skills?: string; // "React:4:3;Node.js:3:2" => name:proficiency:yearsExperience
   certifications?: string; // "PMP:PMI:2022-01-15;AWS SA:AWS:2023-06-01"
   action?: string; // "TERMINATE" to signal an HRMIS-reported exit, otherwise create/update
@@ -20,7 +30,18 @@ export function parseImportCsv(csvText: string): RawImportRow[] {
   return parse(csvText, { columns: true, skip_empty_lines: true, trim: true }) as RawImportRow[];
 }
 
-const REQUIRED_FIELDS: (keyof RawImportRow)[] = ["employeeId", "name", "email", "location", "costRate", "portfolioCode", "skills"];
+const REQUIRED_FIELDS: (keyof RawImportRow)[] = [
+  "employeeId",
+  "name",
+  "location",
+  "costRate",
+  "portfolioCode",
+  "skills",
+  "managerName",
+  "designation",
+  "dateOfJoining",
+  "totalYoe",
+];
 // An HRMIS-reported exit only needs to identify the resource, not its full profile.
 const REQUIRED_FIELDS_FOR_TERMINATE: (keyof RawImportRow)[] = ["employeeId"];
 
@@ -35,6 +56,36 @@ function validateRow(row: RawImportRow): string[] {
   }
   if (!isTerminate && row.costRate && Number.isNaN(Number(row.costRate))) {
     errors.push(`costRate is not numeric: ${row.costRate}`);
+  }
+  if (!isTerminate && row.totalYoe && Number.isNaN(Number(row.totalYoe))) {
+    errors.push(`totalYoe is not numeric: ${row.totalYoe}`);
+  }
+  if (!isTerminate && row.taoExperience && Number.isNaN(Number(row.taoExperience))) {
+    errors.push(`taoExperience is not numeric: ${row.taoExperience}`);
+  }
+  if (!isTerminate && row.priorExperienceYears && Number.isNaN(Number(row.priorExperienceYears))) {
+    errors.push(`priorExperienceYears is not numeric: ${row.priorExperienceYears}`);
+  }
+  if (!isTerminate && row.dateOfJoining) {
+    const doj = new Date(row.dateOfJoining);
+    if (Number.isNaN(doj.getTime())) {
+      errors.push(`dateOfJoining is invalid: ${row.dateOfJoining}`);
+    } else if (row.totalYoe || row.taoExperience) {
+      const now = new Date();
+      const derivedTaoYears = Math.max(0, Math.round((((now.getTime() - doj.getTime()) / (1000 * 60 * 60 * 24 * 365.25)) * 10)) / 10);
+      if (row.taoExperience && Math.abs(Number(row.taoExperience) - derivedTaoYears) > 0.2) {
+        errors.push(`taoExperience does not reconcile with DOJ: supplied ${row.taoExperience}, derived ${derivedTaoYears}`);
+      }
+      if (row.totalYoe && Number(row.totalYoe) < derivedTaoYears) {
+        errors.push(`totalYoe cannot be less than TAO experience derived from DOJ (${derivedTaoYears})`);
+      }
+    }
+  }
+  if (!isTerminate && row.gender) {
+    const normalizedGender = row.gender.trim().toUpperCase();
+    if (!["FEMALE", "MALE", "OTHER", "UNDISCLOSED"].includes(normalizedGender)) {
+      errors.push(`gender is invalid: ${row.gender}`);
+    }
   }
   return errors;
 }
@@ -155,6 +206,16 @@ export async function runImport(rows: RawImportRow[], source: string, actorId?: 
 
     const skills = parseSkills(row.skills);
     const certifications = parseCertifications(row.certifications);
+    const dateOfJoining = row.dateOfJoining ? new Date(row.dateOfJoining) : null;
+    const gender = ((row.gender ?? "UNDISCLOSED").trim().toUpperCase() || "UNDISCLOSED") as "FEMALE" | "MALE" | "OTHER" | "UNDISCLOSED";
+    const derivedTaoYears = dateOfJoining
+      ? Math.max(0, Math.round((((Date.now() - dateOfJoining.getTime()) / (1000 * 60 * 60 * 24 * 365.25)) * 10)) / 10)
+      : 0;
+    const priorExperienceYears = row.priorExperienceYears
+      ? Number(row.priorExperienceYears)
+      : row.totalYoe
+      ? Math.max(0, Math.round((Number(row.totalYoe) - derivedTaoYears) * 10) / 10)
+      : 0;
 
     const existing = await prisma.resource.findUnique({ where: { employeeId: row.employeeId! } });
 
@@ -164,11 +225,19 @@ export async function runImport(rows: RawImportRow[], source: string, actorId?: 
           employeeId: row.employeeId!,
           name: row.name!,
           email: row.email!,
+          gender,
+          country: row.country || null,
+          workLocation: row.workLocation || row.location!,
           location: row.location!,
           willingToRelocate: (row.willingToRelocate ?? "false").toLowerCase() === "true",
           costRate: Number(row.costRate),
           currency: row.currency || "USD",
           portfolioId: portfolio.id,
+          managerName: row.managerName!,
+          designation: row.designation!,
+          subCategory: row.subCategory || null,
+          dateOfJoining,
+          priorExperienceYears,
           status: "AVAILABLE",
           sourceSystem: source,
         },
@@ -192,11 +261,19 @@ export async function runImport(rows: RawImportRow[], source: string, actorId?: 
         data: {
           name: row.name!,
           email: row.email!,
+          gender,
+          country: row.country || null,
+          workLocation: row.workLocation || row.location!,
           location: row.location!,
           willingToRelocate: (row.willingToRelocate ?? "false").toLowerCase() === "true",
           costRate: Number(row.costRate),
           currency: row.currency || "USD",
           portfolioId: portfolio.id,
+          managerName: row.managerName!,
+          designation: row.designation!,
+          subCategory: row.subCategory || null,
+          dateOfJoining,
+          priorExperienceYears,
         },
       });
 

@@ -5,7 +5,7 @@ import { useAuth } from "../context/AuthContext";
 const DEMO_ACCOUNTS = [
   { email: "admin@ram.com", role: "Administrator" },
   { email: "rmg@ram.com", role: "RMG (cross-portfolio)" },
-  { email: "delivery.fin@ram.com", role: "Delivery Lead - Financial Services" },
+  { email: "delivery.fin@ram.com", role: "Delivery Lead - Fintech" },
   { email: "delivery.health@ram.com", role: "Delivery Lead - Healthcare" },
   { email: "hr@ram.com", role: "HR" },
   { email: "ta@ram.com", role: "Talent Acquisition" },

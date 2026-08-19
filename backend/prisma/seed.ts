@@ -10,11 +10,26 @@ async function main() {
 
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
 
+  // Keep seed idempotent so repeated runs do not stack lifecycle records and distort derived metrics.
+  await prisma.maternityLeaveRequest.deleteMany();
+  await prisma.terminationRequest.deleteMany();
+  await prisma.notification.deleteMany();
+  await prisma.auditLog.deleteMany();
+  await prisma.allocation.deleteMany();
+  await prisma.performanceRecord.deleteMany();
+  await prisma.certification.deleteMany();
+  await prisma.resourceSkill.deleteMany();
+
   // ---------- Portfolios ----------
   const [fin, health, publicSector] = await Promise.all([
-    prisma.portfolio.upsert({ where: { code: "FIN" }, create: { code: "FIN", name: "Financial Services" }, update: {} }),
-    prisma.portfolio.upsert({ where: { code: "HC" }, create: { code: "HC", name: "Healthcare" }, update: {} }),
-    prisma.portfolio.upsert({ where: { code: "PS" }, create: { code: "PS", name: "Public Sector" }, update: {} }),
+    prisma.portfolio.upsert({ where: { code: "FIN" }, create: { code: "FIN", name: "Fintech", managerName: "Venkat" }, update: { name: "Fintech", managerName: "Venkat" } }),
+    prisma.portfolio.upsert({ where: { code: "HC" }, create: { code: "HC", name: "Healthcare", managerName: "Dhanasekar / Adharsh" }, update: { name: "Healthcare", managerName: "Dhanasekar / Adharsh" } }),
+    prisma.portfolio.upsert({ where: { code: "PS" }, create: { code: "PS", name: "Media & HiTech", managerName: "Laxman" }, update: { name: "Media & HiTech", managerName: "Laxman" } }),
+  ]);
+  const [autoIndustrial, broadcom, aiMl] = await Promise.all([
+    prisma.portfolio.upsert({ where: { code: "AUTO" }, create: { code: "AUTO", name: "Auto & Industrial", managerName: "Viswa" }, update: { name: "Auto & Industrial", managerName: "Viswa" } }),
+    prisma.portfolio.upsert({ where: { code: "BCM" }, create: { code: "BCM", name: "Broadcom", managerName: "Shantanu/Raja" }, update: { name: "Broadcom", managerName: "Shantanu/Raja" } }),
+    prisma.portfolio.upsert({ where: { code: "AIML" }, create: { code: "AIML", name: "AI/ML Internal", managerName: "Vamsi" }, update: { name: "AI/ML Internal", managerName: "Vamsi" } }),
   ]);
 
   const existingGlobalBenchConfig = await prisma.benchConfig.findFirst({ where: { portfolioId: null } });
@@ -69,9 +84,15 @@ async function main() {
     [rmg.id, fin.id],
     [rmg.id, health.id],
     [rmg.id, publicSector.id],
+    [rmg.id, autoIndustrial.id],
+    [rmg.id, broadcom.id],
+    [rmg.id, aiMl.id],
     [rmg2.id, fin.id],
     [rmg2.id, health.id],
     [rmg2.id, publicSector.id],
+    [rmg2.id, autoIndustrial.id],
+    [rmg2.id, broadcom.id],
+    [rmg2.id, aiMl.id],
     [delFin.id, fin.id],
     [delHealth.id, health.id],
     [viewer.id, fin.id],
@@ -98,14 +119,17 @@ async function main() {
     { code: "FIN-P2", name: "Fraud Analytics Platform", portfolioId: fin.id },
     { code: "HC-P1", name: "Patient Portal Revamp", portfolioId: health.id },
     { code: "PS-P1", name: "Citizen Services Portal", portfolioId: publicSector.id },
+    { code: "AUTO-P1", name: "Plant Analytics Rollout", portfolioId: autoIndustrial.id },
+    { code: "BCM-P1", name: "Broadcom Platform Support", portfolioId: broadcom.id },
+    { code: "AIML-P1", name: "AI Knowledge Assistant", portfolioId: aiMl.id, isInternalProject: true },
   ];
   const projects: Record<string, any> = {};
   for (const p of projectDefs) {
     projects[p.code] = await prisma.project.upsert({
       where: { code: p.code },
-      create: { ...p, status: "ACTIVE", startDate: new Date("2025-01-01") },
-      update: {},
-    });
+        create: { ...p, status: "ACTIVE", startDate: new Date("2025-01-01"), billingDelayed: p.code === "BCM-P1" },
+        update: {},
+      });
   }
 
   const tasksByProject: Record<string, any> = {};
@@ -128,21 +152,29 @@ async function main() {
     costRate: number;
     skillSet: [string, number, number][]; // name, proficiency, years
     willingToRelocate?: boolean;
+    country?: string;
+    gender?: "FEMALE" | "MALE" | "OTHER" | "UNDISCLOSED";
+    workLocation?: string;
+    managerName?: string;
+    designation?: string;
+    subCategory?: string;
+    dateOfJoining?: string;
+    priorExperienceYears?: number;
   }
 
   const resourceDefs: ResourceDef[] = [
-    { employeeId: "E1001", name: "Alicia Chen", email: "alicia.chen@corp.com", location: "New York, US", portfolioId: fin.id, costRate: 145, skillSet: [["React", 5, 6], ["Node.js", 4, 5]] },
-    { employeeId: "E1002", name: "Brian Walsh", email: "brian.walsh@corp.com", location: "Chicago, US", portfolioId: fin.id, costRate: 130, skillSet: [["Java", 5, 8], ["SQL", 4, 8]] },
-    { employeeId: "E1003", name: "Carla Gomez", email: "carla.gomez@corp.com", location: "Austin, US", portfolioId: fin.id, costRate: 160, skillSet: [["Data Science", 5, 5], ["Python", 5, 6]], willingToRelocate: true },
-    { employeeId: "E1004", name: "Devon Park", email: "devon.park@corp.com", location: "Remote", portfolioId: fin.id, costRate: 120, skillSet: [["AWS", 4, 4], ["DevOps", 4, 4]] },
-    { employeeId: "E1005", name: "Elena Petrova", email: "elena.petrova@corp.com", location: "Boston, US", portfolioId: health.id, costRate: 150, skillSet: [["Project Management", 5, 10]] },
-    { employeeId: "E1006", name: "Farid Haidari", email: "farid.haidari@corp.com", location: "Seattle, US", portfolioId: health.id, costRate: 135, skillSet: [["React", 4, 4], ["Node.js", 3, 3]] },
-    { employeeId: "E1007", name: "Grace Lee", email: "grace.lee@corp.com", location: "San Francisco, US", portfolioId: health.id, costRate: 155, skillSet: [["Data Science", 4, 4], ["SQL", 4, 5]] },
-    { employeeId: "E1008", name: "Hassan Ali", email: "hassan.ali@corp.com", location: "Remote", portfolioId: publicSector.id, costRate: 110, skillSet: [["Salesforce", 4, 3], ["Change Management", 3, 3]] },
-    { employeeId: "E1009", name: "Ingrid Sorensen", email: "ingrid.sorensen@corp.com", location: "Denver, US", portfolioId: publicSector.id, costRate: 140, skillSet: [["Kubernetes", 4, 3], ["AWS", 3, 3]] },
-    { employeeId: "E1010", name: "Jamal Robinson", email: "jamal.robinson@corp.com", location: "Atlanta, US", portfolioId: fin.id, costRate: 125, skillSet: [["Java", 3, 3], ["Project Management", 3, 2]] },
-    { employeeId: "E1011", name: "Kavya Iyer", email: "kavya.iyer@corp.com", location: "Remote", portfolioId: health.id, costRate: 132, skillSet: [["Python", 4, 4], ["Data Science", 3, 3]] },
-    { employeeId: "E1012", name: "Liam O'Connor", email: "liam.oconnor@corp.com", location: "Dublin, IE", portfolioId: publicSector.id, costRate: 118, skillSet: [["SQL", 3, 3], ["Salesforce", 3, 2]] },
+    { employeeId: "E1001", name: "Alicia Chen", email: "alicia.chen@corp.com", location: "Santa Clara, California", country: "USA", gender: "FEMALE", workLocation: "Santa Clara, California", managerName: "Venkat", designation: "Engineering Lead", dateOfJoining: "2022-03-01", priorExperienceYears: 5, portfolioId: fin.id, costRate: 145, skillSet: [["React", 5, 6], ["Node.js", 4, 5]] },
+    { employeeId: "E1002", name: "Brian Walsh", email: "brian.walsh@corp.com", location: "Toronto, Ontario", country: "Canada", gender: "MALE", workLocation: "Toronto, Ontario", managerName: "Venkat", designation: "Senior Java Engineer", dateOfJoining: "2021-09-15", priorExperienceYears: 6.5, portfolioId: fin.id, costRate: 130, skillSet: [["Java", 5, 8], ["SQL", 4, 8]] },
+    { employeeId: "E1003", name: "Carla Gomez", email: "carla.gomez@corp.com", location: "Hyderabad - JVP", country: "India", gender: "FEMALE", workLocation: "Hyderabad - JVP", managerName: "Venkat", designation: "Data Scientist", dateOfJoining: "2024-01-10", priorExperienceYears: 4, portfolioId: fin.id, costRate: 160, skillSet: [["Data Science", 5, 5], ["Python", 5, 6]], willingToRelocate: true, subCategory: "Committed Bench" },
+    { employeeId: "E1004", name: "Devon Park", email: "devon.park@corp.com", location: "Remote", country: "India", gender: "MALE", workLocation: "Remote", managerName: "Venkat", designation: "Cloud Engineer", dateOfJoining: "2025-01-05", priorExperienceYears: 1, portfolioId: fin.id, costRate: 120, skillSet: [["AWS", 4, 4], ["DevOps", 4, 4]], subCategory: "Proactive Hire" },
+    { employeeId: "E1005", name: "Elena Petrova", email: "elena.petrova@corp.com", location: "Westmead, New South Wales", country: "Australia", gender: "FEMALE", workLocation: "Westmead, New South Wales", managerName: "Dhanasekar", designation: "Program Manager", dateOfJoining: "2020-07-01", priorExperienceYears: 8, portfolioId: health.id, costRate: 150, skillSet: [["Project Management", 5, 10]] },
+    { employeeId: "E1006", name: "Farid Haidari", email: "farid.haidari@corp.com", location: "Nangang District, Taipei City", country: "Taiwan", gender: "MALE", workLocation: "Nangang District, Taipei City", managerName: "Adharsh", designation: "Full Stack Engineer", dateOfJoining: "2023-11-20", priorExperienceYears: 2.5, portfolioId: health.id, costRate: 135, skillSet: [["React", 4, 4], ["Node.js", 3, 3]] },
+    { employeeId: "E1007", name: "Grace Lee", email: "grace.lee@corp.com", location: "Chennai", country: "India", gender: "FEMALE", workLocation: "Chennai", managerName: "Adharsh", designation: "Data Analyst", dateOfJoining: "2021-02-15", priorExperienceYears: 3.5, portfolioId: health.id, costRate: 155, skillSet: [["Data Science", 4, 4], ["SQL", 4, 5]], subCategory: "Bench" },
+    { employeeId: "E1008", name: "Hassan Ali", email: "hassan.ali@corp.com", location: "Hyderabad - CyberGateway", country: "India", gender: "MALE", workLocation: "Hyderabad - CyberGateway", managerName: "Laxman", designation: "Change Manager", dateOfJoining: "2023-06-12", priorExperienceYears: 2, portfolioId: publicSector.id, costRate: 110, skillSet: [["Salesforce", 4, 3], ["Change Management", 3, 3]], subCategory: "Corporate Bench" },
+    { employeeId: "E1009", name: "Ingrid Sorensen", email: "ingrid.sorensen@corp.com", location: "Remote", country: "India", gender: "FEMALE", workLocation: "Remote", managerName: "Viswa", designation: "Platform Engineer", dateOfJoining: "2024-05-02", priorExperienceYears: 2, portfolioId: autoIndustrial.id, costRate: 140, skillSet: [["Kubernetes", 4, 3], ["AWS", 3, 3]] },
+    { employeeId: "E1010", name: "Jamal Robinson", email: "jamal.robinson@corp.com", location: "Santa Clara, California", country: "USA", gender: "MALE", workLocation: "Santa Clara, California", managerName: "Shantanu", designation: "Associate Intern", dateOfJoining: "2025-05-15", priorExperienceYears: 0, portfolioId: broadcom.id, costRate: 125, skillSet: [["Java", 3, 3], ["Project Management", 3, 2]], subCategory: "Interns" },
+    { employeeId: "E1011", name: "Kavya Iyer", email: "kavya.iyer@corp.com", location: "Hyderabad - JVP", country: "India", gender: "FEMALE", workLocation: "Hyderabad - JVP", managerName: "Vamsi", designation: "ML Engineer", dateOfJoining: "2022-08-10", priorExperienceYears: 3, portfolioId: aiMl.id, costRate: 132, skillSet: [["Python", 4, 4], ["Data Science", 3, 3]], subCategory: "Internal Project" },
+    { employeeId: "E1012", name: "Liam O'Connor", email: "liam.oconnor@corp.com", location: "Visakhapatnam", country: "India", gender: "MALE", workLocation: "Visakhapatnam", managerName: "Laxman", designation: "Business Analyst", dateOfJoining: "2025-02-01", priorExperienceYears: 1.5, portfolioId: publicSector.id, costRate: 118, skillSet: [["SQL", 3, 3], ["Salesforce", 3, 2]] },
   ];
 
   const resources: Record<string, any> = {};
@@ -153,15 +185,35 @@ async function main() {
         employeeId: def.employeeId,
         name: def.name,
         email: def.email,
+        gender: def.gender ?? "UNDISCLOSED",
+        country: def.country,
+        workLocation: def.workLocation,
         location: def.location,
         willingToRelocate: def.willingToRelocate ?? false,
         costRate: def.costRate,
         currency: "USD",
         portfolioId: def.portfolioId,
+        managerName: def.managerName,
+        designation: def.designation,
+        subCategory: def.subCategory,
+        dateOfJoining: def.dateOfJoining ? new Date(def.dateOfJoining) : null,
+        priorExperienceYears: def.priorExperienceYears ?? 0,
         status: "AVAILABLE",
         sourceSystem: "SEED",
       },
-      update: {},
+      update: {
+        country: def.country,
+        gender: def.gender ?? "UNDISCLOSED",
+        workLocation: def.workLocation,
+        location: def.location,
+        managerName: def.managerName,
+        designation: def.designation,
+        subCategory: def.subCategory,
+        dateOfJoining: def.dateOfJoining ? new Date(def.dateOfJoining) : null,
+        priorExperienceYears: def.priorExperienceYears ?? 0,
+        portfolioId: def.portfolioId,
+        costRate: def.costRate,
+      },
     });
     for (const [skillName, proficiency, years] of def.skillSet) {
       await prisma.resourceSkill.upsert({
@@ -194,14 +246,16 @@ async function main() {
   // ---------- Allocations (drive resource lifecycle states) ----------
 
   // Active allocations -> ALLOCATED
-  await createAllocation(resources["E1001"].id, projects["FIN-P1"].id, tasksByProject["FIN-P1"].id, fin.id, 100, daysAgo(60), null, rmg.id, "ACTIVE");
-  await createAllocation(resources["E1002"].id, projects["FIN-P2"].id, tasksByProject["FIN-P2"].id, fin.id, 80, daysAgo(30), null, rmg.id, "ACTIVE");
-  await createAllocation(resources["E1005"].id, projects["HC-P1"].id, tasksByProject["HC-P1"].id, health.id, 100, daysAgo(90), null, rmg2.id, "ACTIVE");
-  await createAllocation(resources["E1008"].id, projects["PS-P1"].id, tasksByProject["PS-P1"].id, publicSector.id, 50, daysAgo(10), null, rmg2.id, "ACTIVE");
+  await createAllocation(resources["E1001"].id, projects["FIN-P1"].id, tasksByProject["FIN-P1"].id, fin.id, 100, daysAgo(60), null, rmg.id, "ACTIVE", "Lead Engineer", "Venkat");
+  await createAllocation(resources["E1002"].id, projects["FIN-P2"].id, tasksByProject["FIN-P2"].id, fin.id, 80, daysAgo(30), null, rmg.id, "ACTIVE", "Solution Architect", "Venkat");
+  await createAllocation(resources["E1005"].id, projects["HC-P1"].id, tasksByProject["HC-P1"].id, health.id, 100, daysAgo(90), null, rmg2.id, "ACTIVE", "Delivery Manager", "Dhanasekar");
+  await createAllocation(resources["E1008"].id, projects["PS-P1"].id, tasksByProject["PS-P1"].id, publicSector.id, 50, daysAgo(10), null, rmg2.id, "ACTIVE", "Change Manager", "Laxman");
+  await createAllocation(resources["E1011"].id, projects["AIML-P1"].id, tasksByProject["AIML-P1"].id, aiMl.id, 100, daysAgo(45), null, rmg2.id, "ACTIVE", "ML Engineer", "Vamsi");
   await prisma.resource.updateMany({ where: { id: { in: [resources["E1001"].id, resources["E1002"].id, resources["E1005"].id, resources["E1008"].id] } }, data: { status: "ALLOCATED" } });
+  await prisma.resource.update({ where: { id: resources["E1011"].id }, data: { status: "ALLOCATED", subCategory: "Internal Project" } });
 
   // Scheduled future allocation -> BENCH_COMMITTED
-  await createAllocation(resources["E1003"].id, projects["FIN-P2"].id, tasksByProject["FIN-P2"].id, fin.id, 100, new Date(now + 7 * 24 * 60 * 60 * 1000), null, rmg.id, "SCHEDULED");
+  await createAllocation(resources["E1003"].id, projects["FIN-P2"].id, tasksByProject["FIN-P2"].id, fin.id, 100, new Date(now + 7 * 24 * 60 * 60 * 1000), null, rmg.id, "SCHEDULED", "Data Scientist", "Venkat");
   await prisma.resource.update({ where: { id: resources["E1003"].id }, data: { status: "BENCH_COMMITTED", benchSince: daysAgo(3) } });
 
   // True bench, aged past threshold (35 days) -> should trigger aging alert
@@ -211,7 +265,19 @@ async function main() {
   await prisma.resource.update({ where: { id: resources["E1011"].id }, data: { status: "BENCH_TRUE", benchSince: daysAgo(5) } });
 
   // A past closed allocation to give E1006 some history, now back to Available
-  await createAllocation(resources["E1006"].id, projects["HC-P1"].id, tasksByProject["HC-P1"].id, health.id, 100, daysAgo(120), daysAgo(40), rmg2.id, "CLOSED");
+  await createAllocation(resources["E1006"].id, projects["HC-P1"].id, tasksByProject["HC-P1"].id, health.id, 100, daysAgo(120), daysAgo(40), rmg2.id, "CLOSED", "Full Stack Engineer", "Adharsh");
+
+  await prisma.maternityLeaveRequest.create({
+    data: {
+      resourceId: resources["E1009"].id,
+      initiatedById: hr.id,
+      status: "APPROVED",
+      hrApproverId: hr.id,
+      decidedAt: daysAgo(2),
+      reason: "Approved maternity leave case for demo",
+    },
+  });
+  await prisma.resource.update({ where: { id: resources["E1009"].id }, data: { status: "ON_ML", subCategory: "ML" } });
 
   // Remaining resources (E1004, E1009, E1010, E1012) stay AVAILABLE (already default).
 
@@ -230,10 +296,24 @@ async function createAllocation(
   startDate: Date,
   endDate: Date | null,
   createdById: string,
-  status: "ACTIVE" | "SCHEDULED" | "CLOSED"
+  status: "ACTIVE" | "SCHEDULED" | "CLOSED",
+  roleOnProject?: string,
+  projectReportingManagerName?: string
 ) {
   return prisma.allocation.create({
-    data: { resourceId, projectId, taskId, portfolioId, allocationPercent, startDate, endDate, createdById, status },
+    data: {
+      resourceId,
+      projectId,
+      taskId,
+      portfolioId,
+      allocationPercent,
+      startDate,
+      endDate,
+      createdById,
+      status,
+      roleOnProject,
+      projectReportingManagerName,
+    },
   });
 }
 

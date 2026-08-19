@@ -32,6 +32,7 @@ router.get("/", async (req, res) => {
       const allocated = portfolioResources.filter((r) => r.status === "ALLOCATED").length;
       const benchCommitted = portfolioResources.filter((r) => r.status === "BENCH_COMMITTED").length;
       const benchTrue = portfolioResources.filter((r) => r.status === "BENCH_TRUE").length;
+      const onMl = portfolioResources.filter((r) => r.status === "ON_ML").length;
       const config = await getBenchConfig(p.id);
       const agingTrueBench = portfolioResources.filter(
         (r) =>
@@ -47,6 +48,7 @@ router.get("/", async (req, res) => {
         allocated,
         benchCommitted,
         benchTrue,
+        onMl,
         agingTrueBench,
         utilizationRate: total > 0 ? Math.round((allocated / total) * 1000) / 10 : 0,
       };

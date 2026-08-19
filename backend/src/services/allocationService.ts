@@ -59,7 +59,7 @@ export async function checkCapacity(
 export async function notifyPortfolioStakeholders(
   portfolioIds: string[],
   message: string,
-  type: "REALLOCATION" | "UNMET_DEMAND" = "REALLOCATION",
+  type: "REALLOCATION" | "UNMET_DEMAND" | "ML_APPROVAL_NEEDED" = "REALLOCATION",
   relatedEntityType?: string,
   relatedEntityId?: string
 ) {

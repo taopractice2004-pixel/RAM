@@ -41,16 +41,20 @@ export default function Bench() {
             <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
               <th className="py-2 px-4">Name</th>
               <th className="py-2 px-4">Portfolio</th>
+              <th className="py-2 px-4">Manager</th>
+              <th className="py-2 px-4">Sub Category</th>
               <th className="py-2 px-4">Classification</th>
               <th className="py-2 px-4">Days on Bench</th>
+              <th className="py-2 px-4">Bench Start</th>
               <th className="py-2 px-4">Next Scheduled Start</th>
+              <th className="py-2 px-4">Available %</th>
               <th className="py-2 px-4">Skills</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={6} className="py-6 text-center text-slate-400">
+                <td colSpan={9} className="py-6 text-center text-slate-400">
                   Loading...
                 </td>
               </tr>
@@ -63,6 +67,8 @@ export default function Bench() {
                   </Link>
                 </td>
                 <td className="py-2 px-4">{r.portfolio?.name}</td>
+                <td className="py-2 px-4">{r.managerName || "—"}</td>
+                <td className="py-2 px-4">{r.subCategory || "—"}</td>
                 <td className="py-2 px-4">
                   <StatusBadge status={r.status} />
                 </td>
@@ -72,11 +78,13 @@ export default function Bench() {
                     <span className="ml-2 badge bg-red-100 text-red-700">Aging</span>
                   )}
                 </td>
+                <td className="py-2 px-4">{r.benchSince ? new Date(r.benchSince).toLocaleDateString() : r.dateOfJoining ? new Date(r.dateOfJoining).toLocaleDateString() : "—"}</td>
                 <td className="py-2 px-4">
                   {r.nextScheduledAllocation
                     ? `${r.nextScheduledAllocation.project?.name} on ${new Date(r.nextScheduledAllocation.startDate).toLocaleDateString()}`
                     : "—"}
                 </td>
+                <td className="py-2 px-4">{r.availablePercentForDeployment ?? 100}%</td>
                 <td className="py-2 px-4">
                   <div className="flex flex-wrap gap-1">
                     {r.skills.slice(0, 3).map((s) => (
@@ -90,7 +98,7 @@ export default function Bench() {
             ))}
             {!isLoading && resources.length === 0 && (
               <tr>
-                <td colSpan={6} className="py-6 text-center text-slate-400">
+                <td colSpan={9} className="py-6 text-center text-slate-400">
                   No resources currently on bench.
                 </td>
               </tr>

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../prisma";
+import { deriveAllocationSummary, deriveBenchAgingDays, deriveDefaultSubCategory, deriveProjectedBenchStartDate, deriveTaoExperienceYears, deriveTotalYearsExperience } from "../utils/resourcePresentation";
 
 const router = Router();
 
@@ -36,8 +37,13 @@ router.get("/", async (req, res) => {
   const now = new Date();
   const enriched = resources.map((r) => ({
     ...r,
-    daysOnBench: r.benchSince ? Math.floor((now.getTime() - r.benchSince.getTime()) / (1000 * 60 * 60 * 24)) : null,
+    taoExperienceYears: deriveTaoExperienceYears(r.dateOfJoining),
+    totalYearsExperience: deriveTotalYearsExperience(r.priorExperienceYears, r.dateOfJoining),
+    daysOnBench: deriveBenchAgingDays(r, now),
     nextScheduledAllocation: r.allocations[0] ?? null,
+    projectedBenchStartDate: deriveProjectedBenchStartDate(r.allocations),
+    subCategory: deriveDefaultSubCategory({ status: r.status, subCategory: r.subCategory }),
+    ...deriveAllocationSummary(r.allocations),
   }));
 
   res.json(enriched);

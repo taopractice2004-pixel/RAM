@@ -6,6 +6,7 @@ import { checkCapacity, notifyPortfolioStakeholders } from "../services/allocati
 import { reclassifyResourceBenchStatus } from "../services/benchService";
 import { writeAudit } from "../utils/audit";
 import { portfolioReadWhere } from "../utils/scope";
+import { deriveDefaultSubCategory } from "../utils/resourcePresentation";
 
 const router = Router();
 
@@ -29,6 +30,8 @@ const allocateSchema = z.object({
   projectId: z.string().uuid(),
   taskId: z.string().uuid().optional(),
   allocationPercent: z.number().int().min(1).max(100),
+  roleOnProject: z.string().optional(),
+  projectReportingManagerName: z.string().optional(),
   startDate: z.coerce.date(),
   endDate: z.coerce.date().optional(),
   notes: z.string().optional(),
@@ -39,15 +42,15 @@ const allocateSchema = z.object({
 router.post("/", requireRole(...LIFECYCLE_ACTION_ROLES), async (req, res) => {
   const parsed = allocateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const { resourceId, projectId, taskId, allocationPercent, startDate, endDate, notes, override } = parsed.data;
+  const { resourceId, projectId, taskId, allocationPercent, roleOnProject, projectReportingManagerName, startDate, endDate, notes, override } = parsed.data;
 
   const resource = await prisma.resource.findUnique({ where: { id: resourceId } });
   if (!resource) return res.status(404).json({ error: "Resource not found" });
   if (resource.status === "TERMINATED") {
     return res.status(400).json({ error: "Cannot allocate a terminated resource" });
   }
-  if (resource.status === "ALLOCATED" && startDate <= new Date()) {
-    return res.status(400).json({ error: "Resource is already allocated; use reallocation instead" });
+  if (resource.status === "ON_ML") {
+    return res.status(400).json({ error: "Cannot allocate a resource who is on maternity leave" });
   }
 
   const project = await prisma.project.findUnique({ where: { id: projectId } });
@@ -78,6 +81,8 @@ router.post("/", requireRole(...LIFECYCLE_ACTION_ROLES), async (req, res) => {
       taskId,
       portfolioId: project.portfolioId,
       allocationPercent,
+      roleOnProject,
+      projectReportingManagerName,
       startDate,
       endDate,
       status: isImmediate ? "ACTIVE" : "SCHEDULED",
@@ -87,7 +92,17 @@ router.post("/", requireRole(...LIFECYCLE_ACTION_ROLES), async (req, res) => {
   });
 
   if (isImmediate) {
-    await prisma.resource.update({ where: { id: resourceId }, data: { status: "ALLOCATED", benchSince: null } });
+    await prisma.resource.update({
+      where: { id: resourceId },
+      data: {
+        status: "ALLOCATED",
+        benchSince: null,
+        subCategory: deriveDefaultSubCategory(
+          { status: "ALLOCATED", subCategory: resource.subCategory },
+          { isInternalProject: project.isInternalProject, billingDelayed: project.billingDelayed }
+        ),
+      },
+    });
   } else {
     await reclassifyResourceBenchStatus(resourceId, req.user!.id);
   }
@@ -108,6 +123,8 @@ const reallocateSchema = z.object({
   projectId: z.string().uuid(),
   taskId: z.string().uuid().optional(),
   allocationPercent: z.number().int().min(1).max(100),
+  roleOnProject: z.string().optional(),
+  projectReportingManagerName: z.string().optional(),
   startDate: z.coerce.date(),
   endDate: z.coerce.date().optional(),
   notes: z.string().optional(),
@@ -118,7 +135,7 @@ const reallocateSchema = z.object({
 router.post("/:id/reallocate", requireRole(...LIFECYCLE_ACTION_ROLES), async (req, res) => {
   const parsed = reallocateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const { projectId, taskId, allocationPercent, startDate, endDate, notes, override } = parsed.data;
+  const { projectId, taskId, allocationPercent, roleOnProject, projectReportingManagerName, startDate, endDate, notes, override } = parsed.data;
 
   const current = await prisma.allocation.findUnique({ where: { id: req.params.id }, include: { resource: true } });
   if (!current) return res.status(404).json({ error: "Allocation not found" });
@@ -155,6 +172,8 @@ router.post("/:id/reallocate", requireRole(...LIFECYCLE_ACTION_ROLES), async (re
         taskId,
         portfolioId: receivingPortfolioId,
         allocationPercent,
+        roleOnProject,
+        projectReportingManagerName,
         startDate,
         endDate,
         status: isImmediate ? "ACTIVE" : "SCHEDULED",
@@ -175,7 +194,17 @@ router.post("/:id/reallocate", requireRole(...LIFECYCLE_ACTION_ROLES), async (re
   });
 
   if (isImmediate) {
-    await prisma.resource.update({ where: { id: current.resourceId }, data: { status: "ALLOCATED", benchSince: null } });
+    await prisma.resource.update({
+      where: { id: current.resourceId },
+      data: {
+        status: "ALLOCATED",
+        benchSince: null,
+        subCategory: deriveDefaultSubCategory(
+          { status: "ALLOCATED", subCategory: current.resource.subCategory },
+          { isInternalProject: newProject.isInternalProject, billingDelayed: newProject.billingDelayed }
+        ),
+      },
+    });
   }
 
   await writeAudit({

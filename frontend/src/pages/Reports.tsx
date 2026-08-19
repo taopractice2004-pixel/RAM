@@ -35,7 +35,7 @@ export default function Reports() {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-slate-900">Reports & Analytics</h1>
-        <p className="text-sm text-slate-500">Basic exportable reporting for Phase 1 (FR-10.1, FR-10.3, FR-10.4).</p>
+        <p className="text-sm text-slate-500">Exportable reporting including experience, availability, bench aging, and lifecycle context.</p>
       </div>
 
       <div className="flex items-center justify-between">

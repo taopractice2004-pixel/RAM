@@ -1,21 +1,24 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { Project, Resource } from "../types";
+import { Allocation, Project, Resource } from "../types";
 import Modal from "./Modal";
 
 interface Props {
   resource: Resource;
   mode: "allocate" | "reallocate";
   currentAllocationId?: string;
+  sourceAllocation?: Allocation;
   onClose: () => void;
 }
 
-export default function AllocationModal({ resource, mode, currentAllocationId, onClose }: Props) {
+export default function AllocationModal({ resource, mode, currentAllocationId, sourceAllocation, onClose }: Props) {
   const queryClient = useQueryClient();
   const [projectId, setProjectId] = useState("");
   const [taskId, setTaskId] = useState("");
   const [allocationPercent, setAllocationPercent] = useState(100);
+  const [roleOnProject, setRoleOnProject] = useState("");
+  const [projectReportingManagerName, setProjectReportingManagerName] = useState("");
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
   const [endDate, setEndDate] = useState("");
   const [notes, setNotes] = useState("");
@@ -41,6 +44,8 @@ export default function AllocationModal({ resource, mode, currentAllocationId, o
         projectId,
         taskId: taskId || undefined,
         allocationPercent: Number(allocationPercent),
+        roleOnProject: roleOnProject || undefined,
+        projectReportingManagerName: projectReportingManagerName || undefined,
         startDate,
         endDate: endDate || undefined,
         notes: notes || undefined,
@@ -71,6 +76,12 @@ export default function AllocationModal({ resource, mode, currentAllocationId, o
   return (
     <Modal title={mode === "allocate" ? `Allocate ${resource.name}` : `Reallocate ${resource.name}`} onClose={onClose}>
       <form onSubmit={handleSubmit} className="space-y-3">
+        {mode === "reallocate" && sourceAllocation && (
+          <div className="rounded-md bg-slate-50 border border-slate-200 p-3 text-sm text-slate-600">
+            Reallocating from <span className="font-medium text-slate-800">{sourceAllocation.project?.name || "selected project"}</span>
+            {sourceAllocation.roleOnProject ? ` as ${sourceAllocation.roleOnProject}` : ""}.
+          </div>
+        )}
         <div>
           <label className="label">Target Project</label>
           <select className="input" value={projectId} onChange={(e) => setProjectId(e.target.value)} required>
@@ -113,10 +124,26 @@ export default function AllocationModal({ resource, mode, currentAllocationId, o
             <input className="input" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
           </div>
         </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="label">Role On Project</label>
+            <input className="input" value={roleOnProject} onChange={(e) => setRoleOnProject(e.target.value)} placeholder="Lead Engineer" />
+          </div>
+          <div>
+            <label className="label">Reporting Manager</label>
+            <input className="input" value={projectReportingManagerName} onChange={(e) => setProjectReportingManagerName(e.target.value)} placeholder="Venkat" />
+          </div>
+        </div>
         <div>
           <label className="label">End Date (optional)</label>
           <input className="input" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
         </div>
+        {selectedProject && (selectedProject.billingDelayed || selectedProject.isInternalProject) && (
+          <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-md p-3">
+            {selectedProject.isInternalProject && <div>This project belongs to the internal AI/ML portfolio and will default subcategory to Internal Project.</div>}
+            {selectedProject.billingDelayed && <div>This project is marked as Billing Delay.</div>}
+          </div>
+        )}
         <div>
           <label className="label">Notes</label>
           <textarea className="input" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
