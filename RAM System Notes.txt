@@ -1,0 +1,8 @@
+RAM System Notes 
+
+1) when I am unassigning/ reallocationg - if the person ha more than 1 project, I should get the option to select which project I am un assigning or reallocating from
+2) ML should apply only to female employees so add gender also in import and in field list
+
+----------------------------------
+
+
