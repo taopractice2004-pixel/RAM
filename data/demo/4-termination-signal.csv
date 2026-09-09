@@ -1,2 +1,2 @@
-employeeId,name,email,location,willingToRelocate,costRate,currency,portfolioCode,skills,certifications,action
-E1009,Ingrid Sorensen,ingrid.sorensen@corp.com,Denver US,false,140,USD,PS,,,TERMINATE
+employeeId,name,email,gender,country,workLocation,location,willingToRelocate,costRate,currency,portfolioCode,managerName,designation,subCategory,dateOfJoining,totalYoe,taoExperience,skills,certifications,action
+E1009,Ingrid Sorensen,ingrid.sorensen@corp.com,FEMALE,India,Remote,Remote,false,140,USD,AUTO,Viswa,Platform Engineer,ML,2024-05-02,2.3,2.3,Kubernetes:4:3;AWS:3:3,,TERMINATE

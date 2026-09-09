@@ -138,10 +138,11 @@ export default function AllocationModal({ resource, mode, currentAllocationId, s
           <label className="label">End Date (optional)</label>
           <input className="input" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
         </div>
-        {selectedProject && (selectedProject.billingDelayed || selectedProject.isInternalProject) && (
+        {selectedProject && (
           <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-md p-3">
             {selectedProject.isInternalProject && <div>This project belongs to the internal AI/ML portfolio and will default subcategory to Internal Project.</div>}
             {selectedProject.billingDelayed && <div>This project is marked as Billing Delay.</div>}
+            {!selectedProject.isInternalProject && !selectedProject.billingDelayed && <div>This allocation will set the resource subcategory to Allocated.</div>}
           </div>
         )}
         <div>

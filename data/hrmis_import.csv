@@ -1,5 +1,6 @@
-employeeId,name,email,location,willingToRelocate,costRate,currency,portfolioCode,skills,certifications,action
-E2001,Nadia Fischer,nadia.fischer@corp.com,Miami US,true,128,USD,FIN,React:4:4;AWS:3:2,,
-E1004,Devon Park,devon.park@corp.com,Remote,true,133,USD,FIN,AWS:5:5;DevOps:4:5,AWS Certified Solutions Architect:AWS:2023-06-01,
-E2002,Oscar Bennett,oscar.bennett@corp.com,,false,,USD,FIN,Java:3:3,,
-E1012,Liam O'Connor,liam.oconnor@corp.com,Dublin IE,false,118,USD,PS,,,TERMINATE
+employeeId,name,email,gender,country,workLocation,location,willingToRelocate,costRate,currency,portfolioCode,managerName,designation,subCategory,dateOfJoining,totalYoe,taoExperience,skills,certifications,action
+E2001,Nadia Fischer,nadia.fischer@corp.com,FEMALE,USA,Miami US,Miami US,true,128,USD,FIN,Venkat,Frontend Engineer,,2023-04-08,7.4,3.4,React:4:4;AWS:3:2,,
+E1004,Devon Park,devon.park@corp.com,MALE,India,Remote,Remote,true,133,USD,FIN,Venkat,Cloud Engineer,Proactive Hire,2025-01-05,1.7,1.7,AWS:5:5;DevOps:4:5,AWS Certified Solutions Architect:AWS:2023-06-01,
+E2002,Oscar Bennett,oscar.bennett@corp.com,MALE,USA,Austin US,Austin US,false,126,USD,FIN,Venkat,Java Engineer,,2024-06-17,6.2,2.2,Java:3:3,,
+E1012,Liam O'Connor,liam.oconnor@corp.com,MALE,India,Visakhapatnam,Visakhapatnam,false,118,USD,PS,Laxman,Business Analyst,,2025-02-01,1.6,1.6,SQL:3:3;Salesforce:3:2,,TERMINATE
+E1014,anoop,anoop@corp.com,MALE,India,Visakhapatnam,Visakhapatnam,false,118,USD,PS,Laxman,Business Analyst,,2025-02-01,1.6,1.6,SQL:3:3;Salesforce:3:2,,

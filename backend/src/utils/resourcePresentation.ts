@@ -48,6 +48,11 @@ export function deriveDefaultSubCategory(resource: Pick<Resource, "status" | "su
   if (resource.status === "BENCH_COMMITTED") return "Committed Bench";
   if (resource.status === "BENCH_TRUE") return "Bench";
   if (resource.status === "TERMINATED") return "Termination";
+  if (resource.status === "ALLOCATED") {
+    if (opts?.isInternalProject) return "Internal Project";
+    if (opts?.billingDelayed) return "Billing Delay";
+    return "Allocated";
+  }
   if (opts?.isInternalProject) return "Internal Project";
   if (opts?.billingDelayed) return "Billing Delay";
   return resource.subCategory;

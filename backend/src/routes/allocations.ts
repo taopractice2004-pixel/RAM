@@ -15,7 +15,11 @@ router.get("/", async (req, res) => {
   const where: any = { ...portfolioReadWhere(req, "portfolioId") };
   if (resourceId) where.resourceId = resourceId;
   if (projectId) where.projectId = projectId;
-  if (status) where.status = { in: status.split(",") };
+  if (status) {
+    where.status = { in: status.split(",") };
+  } else {
+    where.status = { in: ["ACTIVE", "SCHEDULED"] };
+  }
 
   const allocations = await prisma.allocation.findMany({
     where,
