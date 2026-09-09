@@ -11,6 +11,11 @@ RUN npx prisma generate
 
 COPY tsconfig.json ./
 COPY src ./src
+
+# Demo/HRMIS input sheets. Baked into the image so hosts without a persistent
+# volume (e.g. Render) can still run the import job. Local docker-compose mounts
+# ./data over /app/data, so this copy is shadowed there and behaviour is unchanged.
+COPY data ./data
 RUN npm run build
 
 ENV NODE_ENV=production

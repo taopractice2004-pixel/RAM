@@ -1,0 +1,4 @@
+employeeId,name,email,gender,country,workLocation,location,willingToRelocate,costRate,currency,portfolioCode,managerName,designation,subCategory,dateOfJoining,totalYoe,taoExperience,skills,certifications,action
+E3004,Sofia Lindqvist,sofia.lindqvist@corp.com,FEMALE,Sweden,,,false,125,USD,FIN,Venkat,SQL Analyst,,2024-01-08,4.7,2.7,SQL:3:3,,
+E3005,Derek Osei,derek.osei@corp.com,MALE,Canada,Toronto CA,Toronto CA,false,133,USD,XYZ,Venkat,Java Engineer,,2023-03-04,6.5,3.5,Java:4:4,,
+E3006,Wei Zhang,wei.zhang@corp.com,MALE,China,Shanghai CN,Shanghai CN,true,N/A,USD,PS,Laxman,Python Engineer,,2022-10-10,7.9,3.9,Python:4:4,,

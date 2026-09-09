@@ -1,0 +1,52 @@
+# Render Blueprint for the RAM System.
+#
+# Deploys two free-tier services:
+#   ram-backend   Express API + Prisma, built from backend/Dockerfile
+#   ram-frontend  Vite SPA, served as a static site
+#
+# Postgres is NOT defined here on purpose: Render's free Postgres is deleted
+# after 30 days. Use a free Neon database instead and paste its connection
+# string into DATABASE_URL. See docs/DEPLOYMENT.md.
+
+services:
+  - type: web
+    name: ram-backend
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        sync: false # set manually: Neon direct (unpooled) connection string
+      - key: JWT_SECRET
+        generateValue: true # Render generates a strong secret; never reuse the dev one
+      - key: PORT
+        value: 4000
+      - key: NODE_ENV
+        value: production
+      - key: HRMIS_INPUT_SHEET
+        value: /app/data/hrmis_import.csv
+
+  - type: web
+    name: ram-frontend
+    runtime: static
+    buildCommand: cd frontend && npm ci && npm run build
+    staticPublishPath: ./frontend/dist
+    pullRequestPreviewsEnabled: false
+    buildFilter:
+      paths:
+        - frontend/**
+    envVars:
+      - key: VITE_API_URL
+        # Build-time value: Vite inlines this into the bundle, so it must be the
+        # backend's public URL, not a relative path. Update if you rename the
+        # backend service. Set manually after the backend's URL is known.
+        sync: false
+    routes:
+      # SPA fallback: react-router handles client-side paths, so every unmatched
+      # request must return index.html rather than a 404.
+      - type: rewrite
+        source: /*
+        destination: /index.html

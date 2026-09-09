@@ -44,6 +44,11 @@ docker compose exec backend npm run seed
 | ta@ram.com | TA | Read-only bench/skill visibility |
 | viewer@ram.com | VIEWER | Read-only, authorized for Financial Services only |
 
+## Deploying a shareable link (free)
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for deploying to Render + Neon on the
+free tier: a permanent public URL, no installation for whoever you share it with.
+
 ## Local development (without Docker)
 
 ```bash

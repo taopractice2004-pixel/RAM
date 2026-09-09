@@ -1,0 +1,4 @@
+employeeId,name,email,gender,country,workLocation,location,willingToRelocate,costRate,currency,portfolioCode,managerName,designation,subCategory,dateOfJoining,totalYoe,taoExperience,skills,certifications,action
+E1002,Brian Walsh,brian.walsh@corp.com,MALE,USA,Chicago US,Chicago US,false,138,USD,FIN,Venkat,Solution Architect,,2021-09-15,11.0,5.0,Java:5:9;SQL:5:9,AWS Certified Developer:AWS:2024-03-01,
+E1006,Farid Haidari,farid.haidari@corp.com,MALE,USA,Seattle US,Seattle US,true,142,USD,HC,Adharsh,Full Stack Engineer,,2023-11-20,5.8,2.8,React:5:5;Node.js:4:4;AWS:3:1,,
+E1010,Jamal Robinson,jamal.robinson@corp.com,MALE,USA,Remote,Remote,true,131,USD,FIN,Venkat,Associate Engineer,Interns,2025-05-15,0.3,0.3,Java:4:4;Project Management:4:3,,
