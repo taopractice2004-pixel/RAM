@@ -81,7 +81,10 @@ export default function ResourceDetail() {
   const canTerminate = user && TERMINATION_ROLES.includes(user.role);
   const canRequestMl = user && ["ADMIN", "RMG", "HR", "DELIVERY"].includes(user.role);
   const canEdit = user && ["ADMIN", "RMG"].includes(user.role);
-  const canAllocate = canAct && ["AVAILABLE", "BENCH_COMMITTED", "BENCH_TRUE"].includes(resource.status);
+  // FR-2.4: partial allocation across projects. An ALLOCATED resource can still take
+  // another project while under 100% capacity; the backend's capacity check is the
+  // authority on whether the new assignment fits, so it stays selectable here.
+  const canAllocate = canAct && ["AVAILABLE", "BENCH_COMMITTED", "BENCH_TRUE", "ALLOCATED"].includes(resource.status);
   const canReallocate = canAct && activeAllocations.length > 0;
   const canTerminateNow = canTerminate && resource.status !== "ON_ML";
 
