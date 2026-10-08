@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 
 interface AuditParams {
@@ -13,8 +14,8 @@ interface AuditParams {
   message?: string | null;
 }
 
-export async function writeAudit(params: AuditParams) {
-  await prisma.auditLog.create({
+export async function writeAudit(params: AuditParams, client: Prisma.TransactionClient | typeof prisma = prisma) {
+  await client.auditLog.create({
     data: {
       actorId: params.actorId ?? null,
       action: params.action,

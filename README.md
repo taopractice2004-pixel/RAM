@@ -89,14 +89,14 @@ frontend/
 
 | Requirement doc section | Implemented as |
 |---|---|
-| FR-1.1–1.5 (Resource repository & import) | `Resource`/`Skill`/`Certification` models; `POST /imports/run`, `/imports/upload`; quarantine review UI (Admin → Import & Quarantine) |
+| FR-1.1–1.5 (Resource repository & import) | `Resource`/`Skill`/`Certification` models; searchable repository filters; audited profile updates; `POST /imports/run`, `/imports/upload`; quarantine review and audited discard UI (Admin → Import & Quarantine) |
 | FR-2.1–2.4 (Allocation) | `POST /allocations`, capacity/conflict check (`services/allocationService.ts`), partial allocation via `allocationPercent` |
 | FR-3.1–3.4 (Reallocation) | `POST /allocations/:id/reallocate`, cross-portfolio authorization check on both losing & receiving portfolio, stakeholder notifications, full history via `reallocatedFromId` chain |
 | FR-4.1–4.4 (Bench management) | Automatic transition on unassignment/allocation end (`services/benchService.ts`), Committed vs. True classification, RMG/TA aging alerts |
 | FR-5.1–5.4 (Termination) | `POST /terminations`, blocks on active allocations (or force-close with audit), mandatory HR approval step, historical data retained |
 | FR-6.1 (Availability visibility) | Dashboard + Bench view, scoped by portfolio authorization |
 | FR-7.1–7.2 (Performance/PIP) | `PerformanceRecord` model, visibility restricted to HR/RMG/Delivery (see Design Decisions) |
-| FR-8.1–8.2 (Skill matching) | `GET /resources/recommendations/search`, filters on `GET /resources` |
+| FR-8.1–8.2 (Skill matching) | Skill recommendations from the Resource Repository; filters on `GET /resources` for skills, skill experience, certifications, cost, location, relocation, manager, designation, country, portfolio, and status |
 | FR-10.1, 10.3, 10.4 (Reporting) | `/reports/utilization`, `/reports/capacity`, `/reports/bench-aging`, `/reports/termination-trends` — JSON or CSV export |
 | FR-11.1–11.3 (Guardrails/alerts) | Conflict blocking at allocation/reallocation time, bench-aging notifications, incomplete-termination blocking |
 | FR-12.1–12.5 (Access control) | `middleware/rbac.ts`, `PortfolioAuthorization` model, blocked-action audit logging, RMG/HR cross-portfolio read bypass for dashboards |
@@ -107,6 +107,10 @@ demand forecasting, performance/PIP-aware matching *suggestions*, automated guar
 *resolution suggestions* (conflicts are still detected and blocked — the "suggest a fix"
 part is Phase 3), time tracking, profitability (cost vs. revenue) reporting, bidirectional
 HR/Payroll & ERP integrations, and public/partner-facing APIs.
+
+The proposed Phase 2 scope, decision gates, milestones, and acceptance criteria are recorded
+in [PHASE-2-PLAN.md](PHASE-2-PLAN.md). It is a plan only; it does not claim these features are
+implemented.
 
 ## Design decisions & assumptions
 
@@ -142,11 +146,13 @@ even where it conflicts with the narrative text elsewhere in the doc:
   is unaffected by the above — that's a different concept the Section 5.3 matrix doesn't cover,
   since it's about aggregate/forecasting views rather than any of its 9 named actions.
 
-## What's not verified
+## Verification status
 
-Browser-based UI testing (Claude in Chrome) wasn't available in this session, so the frontend
-was verified via: TypeScript compilation (`tsc -b`), a production build (`vite build`), and
-exhaustive API-level smoke testing of every workflow the UI calls (login, allocate, reallocate,
-unassign→bench, portfolio-scope blocking, termination + HR approval, portfolio authorization
-grant/revoke). A manual click-through in a browser is still recommended before considering this
-production-ready.
+Backend TypeScript compilation and frontend type-check/production build pass. The Resource
+Repository route renders in the browser with the added filters and skill recommendations.
+The quarantine discard flow, profile audit transaction and rollback, added search filters,
+recommendation API, and Viewer cost/performance redaction were exercised against a separately
+initialized, seeded PostgreSQL test cluster; 26 isolated API assertions passed. Earlier API
+smoke tests exercised the core Phase 1 lifecycle flows. The user's normal `ram_db` was not
+used for these integration checks. A full manual acceptance pass across every role and screen
+is still recommended before production use.

@@ -90,6 +90,14 @@ export interface Resource {
   empCount?: number;
 }
 
+export interface ResourceRecommendation {
+  resource: Resource;
+  matchCount: number;
+  matchedSkills: string[];
+  statusWeight: number;
+  score: number;
+}
+
 export interface Project {
   id: string;
   name: string;

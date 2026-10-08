@@ -11,6 +11,7 @@ import {
   deriveTotalYearsExperience,
   roundOneDecimal,
 } from "../utils/resourcePresentation";
+import { writeAudit } from "../utils/audit";
 
 const router = Router();
 
@@ -57,6 +58,11 @@ function presentResource<T extends {
 router.get("/", async (req, res) => {
   const {
     q,
+    managerName,
+    certification,
+    designation,
+    country,
+    gender,
     skills, // comma-separated skill names
     minExperience,
     maxCost,
@@ -73,8 +79,13 @@ router.get("/", async (req, res) => {
 
   if (portfolioId) where.portfolioId = portfolioId;
   if (location) where.location = { contains: location, mode: "insensitive" };
+  if (managerName) where.managerName = { contains: managerName, mode: "insensitive" };
+  if (designation) where.designation = { contains: designation, mode: "insensitive" };
+  if (country) where.country = { contains: country, mode: "insensitive" };
+  if (gender) where.gender = gender;
   if (willingToRelocate !== undefined) where.willingToRelocate = willingToRelocate === "true";
   if (status) where.status = { in: status.split(",") };
+  else where.status = { not: "TERMINATED" };
   // Cost-range filtering is only meaningful for roles that can ever see cost data;
   // for everyone else it would act as a blind oracle on a field they can't view.
   if ((minCost || maxCost) && canEverViewCost(req.user!.role)) {
@@ -94,6 +105,9 @@ router.get("/", async (req, res) => {
     if (skillList.length > 0) {
       where.skills = { some: { skill: { name: { in: skillList } } } };
     }
+  }
+  if (certification) {
+    where.certifications = { some: { name: { contains: certification, mode: "insensitive" } } };
   }
   if (minExperience) {
     where.skills = {
@@ -211,72 +225,103 @@ const updateResourceSchema = z.object({
   performanceRecords: z.array(z.object({ rating: z.string().min(1), pipStatus: z.boolean(), reviewDate: z.string(), notes: z.string().nullable().optional() })).optional(),
 });
 
-router.patch("/:id", requireRole("ADMIN", "RMG"), async (req, res) => {
+router.patch("/:id", requireRole("ADMIN", "RMG"), async (req, res, next) => {
   const parsed = updateResourceSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  const resource = await prisma.resource.findUnique({ where: { id: req.params.id } });
-  if (!resource) return res.status(404).json({ error: "Resource not found" });
-
   const { skillIds, certifications, performanceRecords, ...resourceData } = parsed.data;
-  await prisma.resource.update({ where: { id: resource.id }, data: resourceData as any });
-
-  if (skillIds) {
-    await prisma.resourceSkill.deleteMany({ where: { resourceId: resource.id } });
-    for (const skillInput of skillIds) {
-      const skill = await prisma.skill.upsert({ where: { name: skillInput.name }, create: { name: skillInput.name }, update: {} });
-      await prisma.resourceSkill.create({
-        data: {
-          resourceId: resource.id,
-          skillId: skill.id,
-          proficiency: skillInput.proficiency,
-          yearsExperience: roundOneDecimal(skillInput.yearsExperience),
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      const before = await tx.resource.findUnique({
+        where: { id: req.params.id },
+        include: {
+          skills: { include: { skill: true } },
+          certifications: true,
+          performanceRecords: { orderBy: { reviewDate: "desc" } },
         },
       });
-    }
-  }
+      if (!before) return null;
 
-  if (certifications) {
-    await prisma.certification.deleteMany({ where: { resourceId: resource.id } });
-    if (certifications.length > 0) {
-      await prisma.certification.createMany({
-        data: certifications.map((c) => ({
-          resourceId: resource.id,
-          name: c.name,
-          issuer: c.issuer ?? null,
-          issueDate: c.issueDate ? new Date(c.issueDate) : null,
-        })),
+      await tx.resource.update({ where: { id: before.id }, data: resourceData as any });
+
+      if (skillIds) {
+        await tx.resourceSkill.deleteMany({ where: { resourceId: before.id } });
+        for (const skillInput of skillIds) {
+          const skill = await tx.skill.upsert({ where: { name: skillInput.name }, create: { name: skillInput.name }, update: {} });
+          await tx.resourceSkill.create({
+            data: {
+              resourceId: before.id,
+              skillId: skill.id,
+              proficiency: skillInput.proficiency,
+              yearsExperience: roundOneDecimal(skillInput.yearsExperience),
+            },
+          });
+        }
+      }
+
+      if (certifications) {
+        await tx.certification.deleteMany({ where: { resourceId: before.id } });
+        if (certifications.length > 0) {
+          await tx.certification.createMany({
+            data: certifications.map((c) => ({
+              resourceId: before.id,
+              name: c.name,
+              issuer: c.issuer ?? null,
+              issueDate: c.issueDate ? new Date(c.issueDate) : null,
+            })),
+          });
+        }
+      }
+
+      if (performanceRecords) {
+        await tx.performanceRecord.deleteMany({ where: { resourceId: before.id } });
+        if (performanceRecords.length > 0) {
+          await tx.performanceRecord.createMany({
+            data: performanceRecords.map((p) => ({
+              resourceId: before.id,
+              rating: p.rating,
+              pipStatus: p.pipStatus,
+              reviewDate: new Date(p.reviewDate),
+              notes: p.notes ?? null,
+            })),
+          });
+        }
+      }
+
+      const after = await tx.resource.findUnique({
+        where: { id: before.id },
+        include: {
+          skills: { include: { skill: true } },
+          certifications: true,
+          performanceRecords: { orderBy: { reviewDate: "desc" } },
+        },
       });
-    }
-  }
-
-  if (performanceRecords) {
-    await prisma.performanceRecord.deleteMany({ where: { resourceId: resource.id } });
-    if (performanceRecords.length > 0) {
-      await prisma.performanceRecord.createMany({
-        data: performanceRecords.map((p) => ({
-          resourceId: resource.id,
-          rating: p.rating,
-          pipStatus: p.pipStatus,
-          reviewDate: new Date(p.reviewDate),
-          notes: p.notes ?? null,
-        })),
+      await writeAudit({
+        actorId: req.user!.id,
+        action: "UPDATE_RESOURCE_PROFILE",
+        entityType: "Resource",
+        entityId: before.id,
+        portfolioId: before.portfolioId,
+        before,
+        after,
+      }, tx);
+      return tx.resource.findUnique({
+        where: { id: before.id },
+        include: {
+          portfolio: true,
+          skills: { include: { skill: true } },
+          certifications: true,
+          performanceRecords: { orderBy: { reviewDate: "desc" } },
+          allocations: { include: { project: true, task: true }, orderBy: { startDate: "desc" } },
+        },
       });
-    }
+    });
+
+    if (!updated) return res.status(404).json({ error: "Resource not found" });
+    res.json(presentResource(redactCost(updated, req.user!)));
+  } catch (error) {
+    return next(error);
   }
-
-  const updated = await prisma.resource.findUnique({
-    where: { id: resource.id },
-    include: {
-      portfolio: true,
-      skills: { include: { skill: true } },
-      certifications: true,
-      performanceRecords: { orderBy: { reviewDate: "desc" } },
-      allocations: { include: { project: true, task: true }, orderBy: { startDate: "desc" } },
-    },
-  });
-
-  res.json(presentResource(redactCost(updated!, req.user!)));
 });
 
 export default router;
