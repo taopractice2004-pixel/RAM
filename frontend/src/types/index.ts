@@ -96,6 +96,15 @@ export interface ResourceRecommendation {
   matchedSkills: string[];
   statusWeight: number;
   score: number;
+  matchScore: number;
+  components: {
+    key: string;
+    score: number;
+    matched: string[];
+    missing: string[];
+    explanation: string;
+  }[];
+  availableFte?: number;
 }
 
 export interface Project {
