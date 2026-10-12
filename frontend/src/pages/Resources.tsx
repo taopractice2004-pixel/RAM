@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
-import { Portfolio, Resource } from "../types";
+import { Portfolio, Resource, ResourceRecommendation } from "../types";
 import StatusBadge from "../components/StatusBadge";
 import { useAuth } from "../context/AuthContext";
 
@@ -18,9 +18,22 @@ export default function Resources() {
   const [skills, setSkills] = useState("");
   const [location, setLocation] = useState("");
   const [manager, setManager] = useState("");
+  const [certification, setCertification] = useState("");
+  const [designation, setDesignation] = useState("");
+  const [country, setCountry] = useState("");
+  const [minExperience, setMinExperience] = useState("");
   const [maxCost, setMaxCost] = useState("");
+  const [minCost, setMinCost] = useState("");
   const [portfolioId, setPortfolioId] = useState("");
+  const [relocation, setRelocation] = useState("");
   const [statuses, setStatuses] = useState<string[]>([]);
+  const [showRecommendations, setShowRecommendations] = useState(false);
+  const [minProficiency, setMinProficiency] = useState("");
+  const [requiredCertifications, setRequiredCertifications] = useState("");
+  const [requiredFte, setRequiredFte] = useState("");
+  const [requiredStartDate, setRequiredStartDate] = useState("");
+  const [requiredEndDate, setRequiredEndDate] = useState("");
+  const hasAvailabilityCriteria = Boolean(requiredFte && requiredStartDate && requiredEndDate);
 
   const { data: portfolios = [] } = useQuery<Portfolio[]>({
     queryKey: ["portfolios"],
@@ -28,21 +41,59 @@ export default function Resources() {
   });
 
   const { data, isLoading } = useQuery<{ total: number; resources: Resource[] }>({
-    queryKey: ["resources", q, skills, location, manager, maxCost, portfolioId, statuses],
+    queryKey: ["resources", q, skills, location, manager, certification, designation, country, minExperience, minCost, maxCost, portfolioId, relocation, statuses],
     queryFn: async () =>
       (
         await api.get("/resources", {
           params: {
-            q: [q, manager].filter(Boolean).join(" ") || undefined,
+            q: q || undefined,
+            managerName: manager || undefined,
             skills: skills || undefined,
+            certification: certification || undefined,
+            designation: designation || undefined,
+            country: country || undefined,
             location: location || undefined,
-            maxCost: maxCost || undefined,
+            minExperience: minExperience || undefined,
+            minCost: canViewCost ? minCost || undefined : undefined,
+            maxCost: canViewCost ? maxCost || undefined : undefined,
             portfolioId: portfolioId || undefined,
+            willingToRelocate: relocation || undefined,
             status: statuses.length ? statuses.join(",") : undefined,
             pageSize: 50,
           },
         })
       ).data,
+  });
+
+  const {
+    data: recommendations,
+    isLoading: recommendationsLoading,
+    error: recommendationsError,
+  } = useQuery<ResourceRecommendation[]>({
+    queryKey: [
+      "resource-recommendations", skills, location, requiredCertifications, minExperience, minProficiency,
+      requiredFte, requiredStartDate, requiredEndDate, portfolioId, canViewCost ? maxCost : "",
+    ],
+    queryFn: async () =>
+      (
+        await api.get("/resources/recommendations/search", {
+          params: {
+            skills,
+            certifications: requiredCertifications || undefined,
+            minExperience: minExperience || undefined,
+            minProficiency: minProficiency || undefined,
+            location: location || undefined,
+            ...(hasAvailabilityCriteria ? {
+              requiredFte,
+              startDate: requiredStartDate,
+              endDate: requiredEndDate,
+            } : {}),
+            portfolioId: portfolioId || undefined,
+            maxCost: canViewCost ? maxCost || undefined : undefined,
+          },
+        })
+      ).data,
+    enabled: showRecommendations && skills.split(",").some((skill) => skill.trim().length > 0),
   });
 
   function toggleStatus(s: string) {
@@ -53,10 +104,10 @@ export default function Resources() {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-slate-900">Resource Repository</h1>
-        <p className="text-sm text-slate-500">Search and filter by skill, experience, cost, location, and availability.</p>
+        <p className="text-sm text-slate-500">Search active resources by profile, skills, experience, certifications, cost, location, and availability.</p>
       </div>
 
-      <div className="card p-4 grid grid-cols-1 md:grid-cols-6 gap-3">
+      <div className="card p-4 grid grid-cols-1 md:grid-cols-4 xl:grid-cols-6 gap-3">
         <div>
           <label className="label">Search (name/email/ID)</label>
           <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Alicia Chen" />
@@ -73,11 +124,41 @@ export default function Resources() {
           <label className="label">Manager</label>
           <input className="input" value={manager} onChange={(e) => setManager(e.target.value)} placeholder="Venkat" />
         </div>
+        <div>
+          <label className="label">Designation</label>
+          <input className="input" value={designation} onChange={(e) => setDesignation(e.target.value)} placeholder="Engineer" />
+        </div>
+        <div>
+          <label className="label">Country</label>
+          <input className="input" value={country} onChange={(e) => setCountry(e.target.value)} placeholder="India" />
+        </div>
+        <div>
+          <label className="label">Certification</label>
+          <input className="input" value={certification} onChange={(e) => setCertification(e.target.value)} placeholder="AWS" />
+        </div>
+        <div>
+          <label className="label">Minimum skill experience (years)</label>
+          <input className="input" type="number" min="0" step="0.5" value={minExperience} onChange={(e) => setMinExperience(e.target.value)} />
+        </div>
+        <div>
+          <label className="label">Willing to relocate</label>
+          <select className="input" value={relocation} onChange={(e) => setRelocation(e.target.value)}>
+            <option value="">Any</option>
+            <option value="true">Yes</option>
+            <option value="false">No</option>
+          </select>
+        </div>
         {canViewCost && (
-          <div>
-            <label className="label">Max Cost Rate</label>
-            <input className="input" type="number" value={maxCost} onChange={(e) => setMaxCost(e.target.value)} placeholder="150" />
-          </div>
+          <>
+            <div>
+              <label className="label">Min Cost Rate</label>
+              <input className="input" type="number" min="0" value={minCost} onChange={(e) => setMinCost(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Max Cost Rate</label>
+              <input className="input" type="number" min="0" value={maxCost} onChange={(e) => setMaxCost(e.target.value)} placeholder="150" />
+            </div>
+          </>
         )}
         <div>
           <label className="label">Portfolio</label>
@@ -90,7 +171,7 @@ export default function Resources() {
             ))}
           </select>
         </div>
-        <div className="md:col-span-5 flex flex-wrap gap-2">
+        <div className="md:col-span-4 xl:col-span-6 flex flex-wrap gap-2">
           {STATUS_OPTIONS.map((s) => (
             <button
               key={s}
@@ -104,7 +185,81 @@ export default function Resources() {
             </button>
           ))}
         </div>
+        <div className="md:col-span-4 xl:col-span-6 flex items-center gap-3">
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => setShowRecommendations(true)}
+            disabled={!skills.trim()}
+          >
+            Recommend by skills
+          </button>
+          {!skills.trim() && <span className="text-xs text-slate-500">Enter one or more skills to get recommendations.</span>}
+        </div>
       </div>
+
+      {showRecommendations && skills.trim() && (
+        <section className="card p-4 space-y-3" aria-live="polite">
+          <h2 className="font-semibold text-slate-900">Skill recommendations</h2>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+            <div>
+              <label className="label">Required certifications (comma-separated)</label>
+              <input className="input" value={requiredCertifications} onChange={(e) => setRequiredCertifications(e.target.value)} placeholder="AWS, PMP" />
+            </div>
+            <div>
+              <label className="label">Minimum skill proficiency (1-5)</label>
+              <input className="input" type="number" min="1" max="5" step="1" value={minProficiency} onChange={(e) => setMinProficiency(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Required FTE</label>
+              <input className="input" type="number" min="0.01" step="0.01" value={requiredFte} onChange={(e) => setRequiredFte(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Required start date</label>
+              <input className="input" type="date" value={requiredStartDate} onChange={(e) => setRequiredStartDate(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Required end date</label>
+              <input className="input" type="date" value={requiredEndDate} onChange={(e) => setRequiredEndDate(e.target.value)} />
+            </div>
+          </div>
+          <p className="text-xs text-slate-500">
+            Requested location and minimum skill experience use the repository filters above.
+            Enter FTE and both dates together to include availability in the score.
+          </p>
+          {recommendationsLoading && <p className="text-sm text-slate-500">Finding matching resources...</p>}
+          {recommendationsError && <p className="text-sm text-red-600">Recommendations could not be loaded. Please try again.</p>}
+          {!recommendationsLoading && !recommendationsError && recommendations?.length === 0 && (
+            <p className="text-sm text-slate-500">No active resources match the requested skills.</p>
+          )}
+          <div className="grid gap-2">
+            {recommendations?.map(({ resource, matchCount, matchedSkills, matchScore, components, availableFte }) => (
+              <button
+                key={resource.id}
+                type="button"
+                className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-200 p-3 text-left hover:bg-slate-50"
+                onClick={() => navigate(`/resources/${resource.id}`)}
+              >
+                <span>
+                  <span className="font-medium text-slate-800">{resource.name}</span>
+                  <span className="ml-2 text-sm text-slate-500">{resource.portfolio?.name}</span>
+                  <span className="ml-2 text-xs text-slate-500">{resource.status.replace(/_/g, " ")}</span>
+                  {availableFte !== undefined && <span className="ml-2 text-xs text-slate-500">{availableFte.toFixed(2)} FTE available</span>}
+                </span>
+                <span className="text-sm font-medium text-slate-700">{matchScore}% match · {matchCount} skill{matchCount === 1 ? "" : "s"}: {matchedSkills.join(", ") || "none"}</span>
+                <span className="w-full space-y-1 text-xs text-slate-500">
+                  {components.map((component) => (
+                    <span key={component.key} className="block">
+                      {component.explanation}
+                      {component.missing.length > 0 && ` · Missing: ${component.missing.join(", ")}`}
+                    </span>
+                  ))}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="card overflow-x-auto">
         <table className="w-full text-sm">

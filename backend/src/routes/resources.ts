@@ -11,6 +11,14 @@ import {
   deriveTotalYearsExperience,
   roundOneDecimal,
 } from "../utils/resourcePresentation";
+import { writeAudit } from "../utils/audit";
+import {
+  getAvailableFte,
+  getRecommendationStatusTieBreakWeight,
+  getRecommendationStatusWeight,
+  normalizeMatchText,
+  scoreResourceMatch,
+} from "../utils/resourceMatching";
 
 const router = Router();
 
@@ -57,6 +65,11 @@ function presentResource<T extends {
 router.get("/", async (req, res) => {
   const {
     q,
+    managerName,
+    certification,
+    designation,
+    country,
+    gender,
     skills, // comma-separated skill names
     minExperience,
     maxCost,
@@ -73,8 +86,13 @@ router.get("/", async (req, res) => {
 
   if (portfolioId) where.portfolioId = portfolioId;
   if (location) where.location = { contains: location, mode: "insensitive" };
+  if (managerName) where.managerName = { contains: managerName, mode: "insensitive" };
+  if (designation) where.designation = { contains: designation, mode: "insensitive" };
+  if (country) where.country = { contains: country, mode: "insensitive" };
+  if (gender) where.gender = gender;
   if (willingToRelocate !== undefined) where.willingToRelocate = willingToRelocate === "true";
   if (status) where.status = { in: status.split(",") };
+  else where.status = { not: "TERMINATED" };
   // Cost-range filtering is only meaningful for roles that can ever see cost data;
   // for everyone else it would act as a blind oracle on a field they can't view.
   if ((minCost || maxCost) && canEverViewCost(req.user!.role)) {
@@ -94,6 +112,9 @@ router.get("/", async (req, res) => {
     if (skillList.length > 0) {
       where.skills = { some: { skill: { name: { in: skillList } } } };
     }
+  }
+  if (certification) {
+    where.certifications = { some: { name: { contains: certification, mode: "insensitive" } } };
   }
   if (minExperience) {
     where.skills = {
@@ -160,37 +181,112 @@ router.get("/:id", async (req, res) => {
  * matching on the requested skill set. Visible org-wide per Section 5.3 row 1; cost is
  * redacted per the same rule as the main list/detail endpoints.
  */
-router.get("/recommendations/search", async (req, res) => {
-  const { skills, portfolioId, maxCost, location } = req.query as Record<string, string | undefined>;
-  const skillList = (skills ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-  if (skillList.length === 0) return res.status(400).json({ error: "skills query param is required" });
-
-  const where: any = {
-    status: { not: "TERMINATED" },
-    skills: { some: { skill: { name: { in: skillList } } } },
-  };
-  if (portfolioId) where.portfolioId = portfolioId;
-  if (location) where.location = { contains: location, mode: "insensitive" };
-  if (maxCost && canEverViewCost(req.user!.role)) where.costRate = { lte: Number(maxCost) };
-
-  const candidates = await prisma.resource.findMany({
-    where,
-    include: { skills: { include: { skill: true } }, portfolio: true },
+router.get("/recommendations/search", async (req, res, next) => {
+  const optionalNumber = z.preprocess((value) => value === "" ? undefined : value, z.coerce.number().optional());
+  const optionalDate = z.preprocess((value) => value === "" ? undefined : value, z.coerce.date().optional());
+  const searchSchema = z.object({
+    skills: z.string().min(1, "skills query param is required").transform((value) =>
+      Array.from(new Set(value.split(",").map(normalizeMatchText).filter(Boolean)))
+    ).refine((values) => values.length > 0, "At least one skill is required"),
+    certifications: z.string().optional().transform((value) =>
+      Array.from(new Set((value ?? "").split(",").map(normalizeMatchText).filter(Boolean)))
+    ),
+    minProficiency: optionalNumber.pipe(z.number().int().min(1).max(5).optional()),
+    minExperience: optionalNumber.pipe(z.number().min(0).optional()),
+    requiredFte: optionalNumber.pipe(z.number().positive().finite().optional()),
+    startDate: optionalDate,
+    endDate: optionalDate,
+    portfolioId: z.string().optional(),
+    maxCost: optionalNumber.pipe(z.number().min(0).optional()),
+    location: z.string().trim().min(1).optional(),
+  }).superRefine((criteria, ctx) => {
+    const availabilityParts = [criteria.requiredFte, criteria.startDate, criteria.endDate];
+    const specifiedAvailabilityParts = availabilityParts.filter((value) => value !== undefined).length;
+    if (specifiedAvailabilityParts !== 0 && specifiedAvailabilityParts !== availabilityParts.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "requiredFte, startDate, and endDate must be supplied together",
+      });
+    }
+    if (criteria.startDate && criteria.endDate && criteria.endDate < criteria.startDate) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "endDate must be on or after startDate" });
+    }
   });
+  const parsed = searchSchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const criteria = parsed.data;
+  const availabilityRequested = criteria.requiredFte !== undefined && criteria.startDate !== undefined && criteria.endDate !== undefined;
 
-  const ranked = candidates
-    .map((r) => {
-      const matchedSkills = r.skills.filter((s) => skillList.includes(s.skill.name));
-      const statusWeight = r.status === "AVAILABLE" ? 3 : r.status === "BENCH_TRUE" ? 2 : r.status === "BENCH_COMMITTED" ? 1 : 0;
-        return {
-          resource: presentResource(redactCost(r, req.user!)),
-          matchCount: matchedSkills.length,
-          matchedSkills: matchedSkills.map((s) => s.skill.name),
-          statusWeight,
-        score: matchedSkills.length * 10 + statusWeight,
-      };
-    })
-    .sort((a, b) => b.score - a.score);
+  const where: any = { status: { not: "TERMINATED" } };
+  if (criteria.portfolioId) where.portfolioId = criteria.portfolioId;
+  if (criteria.maxCost !== undefined && canEverViewCost(req.user!.role)) where.costRate = { lte: criteria.maxCost };
+
+  const findCandidates = () => prisma.resource.findMany({
+    where,
+    include: {
+      skills: { include: { skill: true } },
+      certifications: true,
+      portfolio: true,
+      ...(availabilityRequested ? {
+        allocations: {
+          where: {
+            status: { in: ["ACTIVE", "SCHEDULED"] },
+            startDate: { lte: criteria.endDate },
+            OR: [{ endDate: null }, { endDate: { gte: criteria.startDate } }],
+          },
+          select: { allocationPercent: true, startDate: true, endDate: true },
+        },
+      } : {}),
+    },
+  });
+  let candidates: Awaited<ReturnType<typeof findCandidates>>;
+  try {
+    candidates = await findCandidates();
+  } catch (error) {
+    return next(error);
+  }
+
+  const ranked = candidates.map((candidate) => {
+    const availableFte = availabilityRequested
+      ? getAvailableFte(candidate.allocations, candidate.status, criteria.startDate!, criteria.endDate!)
+      : undefined;
+    const match = scoreResourceMatch({
+      skills: criteria.skills,
+      minProficiency: criteria.minProficiency,
+      minExperience: criteria.minExperience,
+      certifications: criteria.certifications,
+      certificationDate: criteria.startDate ?? new Date(),
+      location: criteria.location,
+      locations: [candidate.workLocation, candidate.location].filter((value): value is string => Boolean(value)),
+      willingToRelocate: candidate.willingToRelocate,
+      availableFte,
+      requiredFte: availabilityRequested ? criteria.requiredFte : undefined,
+    }, candidate.skills.map((item) => ({
+      name: item.skill.name,
+      proficiency: item.proficiency,
+      yearsExperience: item.yearsExperience,
+    })), candidate.certifications);
+    const statusWeight = getRecommendationStatusWeight(candidate.status);
+    const { allocations: _allocations, ...candidateWithoutAllocations } = candidate;
+    return {
+      resource: presentResource(redactCost(candidateWithoutAllocations, req.user!)),
+      matchCount: match.matchedSkills.length,
+      matchedSkills: match.matchedSkills,
+      statusWeight,
+      statusOrderWeight: getRecommendationStatusTieBreakWeight(candidate.status),
+      score: match.matchedSkills.length * 10 + statusWeight,
+      matchScore: match.matchScore,
+      components: match.components,
+      ...(availableFte !== undefined ? { availableFte } : {}),
+    };
+  }).filter((recommendation) => recommendation.matchCount > 0).sort((a, b) =>
+    b.matchScore - a.matchScore ||
+    b.statusOrderWeight - a.statusOrderWeight ||
+    (normalizeMatchText(a.resource.name) < normalizeMatchText(b.resource.name) ? -1
+      : normalizeMatchText(a.resource.name) > normalizeMatchText(b.resource.name) ? 1
+        : a.resource.id < b.resource.id ? -1
+          : a.resource.id > b.resource.id ? 1 : 0)
+  ).map(({ statusOrderWeight: _statusOrderWeight, ...recommendation }) => recommendation);
 
   res.json(ranked);
 });
@@ -211,72 +307,103 @@ const updateResourceSchema = z.object({
   performanceRecords: z.array(z.object({ rating: z.string().min(1), pipStatus: z.boolean(), reviewDate: z.string(), notes: z.string().nullable().optional() })).optional(),
 });
 
-router.patch("/:id", requireRole("ADMIN", "RMG"), async (req, res) => {
+router.patch("/:id", requireRole("ADMIN", "RMG"), async (req, res, next) => {
   const parsed = updateResourceSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  const resource = await prisma.resource.findUnique({ where: { id: req.params.id } });
-  if (!resource) return res.status(404).json({ error: "Resource not found" });
-
   const { skillIds, certifications, performanceRecords, ...resourceData } = parsed.data;
-  await prisma.resource.update({ where: { id: resource.id }, data: resourceData as any });
-
-  if (skillIds) {
-    await prisma.resourceSkill.deleteMany({ where: { resourceId: resource.id } });
-    for (const skillInput of skillIds) {
-      const skill = await prisma.skill.upsert({ where: { name: skillInput.name }, create: { name: skillInput.name }, update: {} });
-      await prisma.resourceSkill.create({
-        data: {
-          resourceId: resource.id,
-          skillId: skill.id,
-          proficiency: skillInput.proficiency,
-          yearsExperience: roundOneDecimal(skillInput.yearsExperience),
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      const before = await tx.resource.findUnique({
+        where: { id: req.params.id },
+        include: {
+          skills: { include: { skill: true } },
+          certifications: true,
+          performanceRecords: { orderBy: { reviewDate: "desc" } },
         },
       });
-    }
-  }
+      if (!before) return null;
 
-  if (certifications) {
-    await prisma.certification.deleteMany({ where: { resourceId: resource.id } });
-    if (certifications.length > 0) {
-      await prisma.certification.createMany({
-        data: certifications.map((c) => ({
-          resourceId: resource.id,
-          name: c.name,
-          issuer: c.issuer ?? null,
-          issueDate: c.issueDate ? new Date(c.issueDate) : null,
-        })),
+      await tx.resource.update({ where: { id: before.id }, data: resourceData as any });
+
+      if (skillIds) {
+        await tx.resourceSkill.deleteMany({ where: { resourceId: before.id } });
+        for (const skillInput of skillIds) {
+          const skill = await tx.skill.upsert({ where: { name: skillInput.name }, create: { name: skillInput.name }, update: {} });
+          await tx.resourceSkill.create({
+            data: {
+              resourceId: before.id,
+              skillId: skill.id,
+              proficiency: skillInput.proficiency,
+              yearsExperience: roundOneDecimal(skillInput.yearsExperience),
+            },
+          });
+        }
+      }
+
+      if (certifications) {
+        await tx.certification.deleteMany({ where: { resourceId: before.id } });
+        if (certifications.length > 0) {
+          await tx.certification.createMany({
+            data: certifications.map((c) => ({
+              resourceId: before.id,
+              name: c.name,
+              issuer: c.issuer ?? null,
+              issueDate: c.issueDate ? new Date(c.issueDate) : null,
+            })),
+          });
+        }
+      }
+
+      if (performanceRecords) {
+        await tx.performanceRecord.deleteMany({ where: { resourceId: before.id } });
+        if (performanceRecords.length > 0) {
+          await tx.performanceRecord.createMany({
+            data: performanceRecords.map((p) => ({
+              resourceId: before.id,
+              rating: p.rating,
+              pipStatus: p.pipStatus,
+              reviewDate: new Date(p.reviewDate),
+              notes: p.notes ?? null,
+            })),
+          });
+        }
+      }
+
+      const after = await tx.resource.findUnique({
+        where: { id: before.id },
+        include: {
+          skills: { include: { skill: true } },
+          certifications: true,
+          performanceRecords: { orderBy: { reviewDate: "desc" } },
+        },
       });
-    }
-  }
-
-  if (performanceRecords) {
-    await prisma.performanceRecord.deleteMany({ where: { resourceId: resource.id } });
-    if (performanceRecords.length > 0) {
-      await prisma.performanceRecord.createMany({
-        data: performanceRecords.map((p) => ({
-          resourceId: resource.id,
-          rating: p.rating,
-          pipStatus: p.pipStatus,
-          reviewDate: new Date(p.reviewDate),
-          notes: p.notes ?? null,
-        })),
+      await writeAudit({
+        actorId: req.user!.id,
+        action: "UPDATE_RESOURCE_PROFILE",
+        entityType: "Resource",
+        entityId: before.id,
+        portfolioId: before.portfolioId,
+        before,
+        after,
+      }, tx);
+      return tx.resource.findUnique({
+        where: { id: before.id },
+        include: {
+          portfolio: true,
+          skills: { include: { skill: true } },
+          certifications: true,
+          performanceRecords: { orderBy: { reviewDate: "desc" } },
+          allocations: { include: { project: true, task: true }, orderBy: { startDate: "desc" } },
+        },
       });
-    }
+    });
+
+    if (!updated) return res.status(404).json({ error: "Resource not found" });
+    res.json(presentResource(redactCost(updated, req.user!)));
+  } catch (error) {
+    return next(error);
   }
-
-  const updated = await prisma.resource.findUnique({
-    where: { id: resource.id },
-    include: {
-      portfolio: true,
-      skills: { include: { skill: true } },
-      certifications: true,
-      performanceRecords: { orderBy: { reviewDate: "desc" } },
-      allocations: { include: { project: true, task: true }, orderBy: { startDate: "desc" } },
-    },
-  });
-
-  res.json(presentResource(redactCost(updated!, req.user!)));
 });
 
 export default router;
