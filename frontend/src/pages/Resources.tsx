@@ -28,6 +28,12 @@ export default function Resources() {
   const [relocation, setRelocation] = useState("");
   const [statuses, setStatuses] = useState<string[]>([]);
   const [showRecommendations, setShowRecommendations] = useState(false);
+  const [minProficiency, setMinProficiency] = useState("");
+  const [requiredCertifications, setRequiredCertifications] = useState("");
+  const [requiredFte, setRequiredFte] = useState("");
+  const [requiredStartDate, setRequiredStartDate] = useState("");
+  const [requiredEndDate, setRequiredEndDate] = useState("");
+  const hasAvailabilityCriteria = Boolean(requiredFte && requiredStartDate && requiredEndDate);
 
   const { data: portfolios = [] } = useQuery<Portfolio[]>({
     queryKey: ["portfolios"],
@@ -64,13 +70,24 @@ export default function Resources() {
     isLoading: recommendationsLoading,
     error: recommendationsError,
   } = useQuery<ResourceRecommendation[]>({
-    queryKey: ["resource-recommendations", skills, location, portfolioId, canViewCost ? maxCost : ""],
+    queryKey: [
+      "resource-recommendations", skills, location, requiredCertifications, minExperience, minProficiency,
+      requiredFte, requiredStartDate, requiredEndDate, portfolioId, canViewCost ? maxCost : "",
+    ],
     queryFn: async () =>
       (
         await api.get("/resources/recommendations/search", {
           params: {
             skills,
+            certifications: requiredCertifications || undefined,
+            minExperience: minExperience || undefined,
+            minProficiency: minProficiency || undefined,
             location: location || undefined,
+            ...(hasAvailabilityCriteria ? {
+              requiredFte,
+              startDate: requiredStartDate,
+              endDate: requiredEndDate,
+            } : {}),
             portfolioId: portfolioId || undefined,
             maxCost: canViewCost ? maxCost || undefined : undefined,
           },
@@ -184,13 +201,39 @@ export default function Resources() {
       {showRecommendations && skills.trim() && (
         <section className="card p-4 space-y-3" aria-live="polite">
           <h2 className="font-semibold text-slate-900">Skill recommendations</h2>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+            <div>
+              <label className="label">Required certifications (comma-separated)</label>
+              <input className="input" value={requiredCertifications} onChange={(e) => setRequiredCertifications(e.target.value)} placeholder="AWS, PMP" />
+            </div>
+            <div>
+              <label className="label">Minimum skill proficiency (1-5)</label>
+              <input className="input" type="number" min="1" max="5" step="1" value={minProficiency} onChange={(e) => setMinProficiency(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Required FTE</label>
+              <input className="input" type="number" min="0.01" step="0.01" value={requiredFte} onChange={(e) => setRequiredFte(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Required start date</label>
+              <input className="input" type="date" value={requiredStartDate} onChange={(e) => setRequiredStartDate(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Required end date</label>
+              <input className="input" type="date" value={requiredEndDate} onChange={(e) => setRequiredEndDate(e.target.value)} />
+            </div>
+          </div>
+          <p className="text-xs text-slate-500">
+            Requested location and minimum skill experience use the repository filters above.
+            Enter FTE and both dates together to include availability in the score.
+          </p>
           {recommendationsLoading && <p className="text-sm text-slate-500">Finding matching resources...</p>}
           {recommendationsError && <p className="text-sm text-red-600">Recommendations could not be loaded. Please try again.</p>}
           {!recommendationsLoading && !recommendationsError && recommendations?.length === 0 && (
             <p className="text-sm text-slate-500">No active resources match the requested skills.</p>
           )}
           <div className="grid gap-2">
-            {recommendations?.map(({ resource, matchCount, matchedSkills }) => (
+            {recommendations?.map(({ resource, matchCount, matchedSkills, matchScore, components, availableFte }) => (
               <button
                 key={resource.id}
                 type="button"
@@ -200,8 +243,18 @@ export default function Resources() {
                 <span>
                   <span className="font-medium text-slate-800">{resource.name}</span>
                   <span className="ml-2 text-sm text-slate-500">{resource.portfolio?.name}</span>
+                  <span className="ml-2 text-xs text-slate-500">{resource.status.replace(/_/g, " ")}</span>
+                  {availableFte !== undefined && <span className="ml-2 text-xs text-slate-500">{availableFte.toFixed(2)} FTE available</span>}
                 </span>
-                <span className="text-sm text-slate-600">{matchCount} match{matchCount === 1 ? "" : "es"}: {matchedSkills.join(", ")}</span>
+                <span className="text-sm font-medium text-slate-700">{matchScore}% match · {matchCount} skill{matchCount === 1 ? "" : "s"}: {matchedSkills.join(", ") || "none"}</span>
+                <span className="w-full space-y-1 text-xs text-slate-500">
+                  {components.map((component) => (
+                    <span key={component.key} className="block">
+                      {component.explanation}
+                      {component.missing.length > 0 && ` · Missing: ${component.missing.join(", ")}`}
+                    </span>
+                  ))}
+                </span>
               </button>
             ))}
           </div>

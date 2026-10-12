@@ -1,6 +1,6 @@
 # RAM Phase 2 Plan — Visibility & Matching
 
-**Status:** Proposed plan; implementation has not started
+**Status:** Milestone 1 non-PIP matching implementation in progress; demand/forecast/report work has not started
 **Requirements baseline:** `Resource Allocation and Management.pdf`, Sections 4.6, 4.8, 4.10, 5, 6, 7.6, 8, 9.2, and 10
 **Product baseline:** Phase 1 core lifecycle MVP, with current implementation status recorded in `README.md` and `TIMESHEET.md`
 **Audience:** Product owner, RMG, Delivery, TA, HR, engineers, QA, and future coding assistants
@@ -88,7 +88,7 @@ not silent assumptions.
 | Forecast time grain and horizon | Weekly buckets for the next 26 weeks; show the horizon as a user-selectable report filter only if performance remains acceptable. | Defines planned demand dates, supply calculations, chart/table shape, and meaningful forecast limits. |
 | Demand confidence | Store a required confidence stage or probability on each demand item; initially use named stages (for example, pipeline / likely / committed) with centrally configured weights. Do not hard-code guessed probabilities into code. | Avoids treating uncertain pipeline as guaranteed demand and makes totals explainable. |
 | Demand unit | Required headcount/FTE per role requirement, with start/end date, skill requirements, and work location/portfolio. | Enables meaningful supply-versus-demand comparisons. |
-| Supply definition | Count schedulable FTE by overlapping allocation percentages and schedule dates; treat leave/ON_ML and terminated resources as unavailable; expose bench/available supply separately. | Prevents double-counting people and keeps Phase 1 allocation rules authoritative. |
+| Supply definition | Follow the approved weekly supply rule in `PHASE-2-DECISIONS.md`. Future/partial leave timing remains pending because the verified schema does not provide a leave date range. | Prevents double-counting people and keeps Phase 1 allocation rules authoritative. |
 | Match weights and minimum qualification | Exact skill must be an explicit match; score skill coverage, proficiency, experience, certification, location/relocation, and future availability. Product owner/RMG approve weights and tie-breakers. | Recommendations affect staffing decisions and need predictable, explainable behavior. |
 | PIP-aware use | Only an explicitly authorized user may enable/use the PIP criterion. Unauthorized users get the same non-PIP result as if the criterion were not requested, with no PIP-related count, rank, or error signal. | A hidden PIP signal can still disclose sensitive data through ordering or result changes. |
 | PIP policy versus current permission matrix | Current README says Admin/HR always see sensitive fields, RMG sees fields only in explicitly granted portfolios, Delivery/TA/Viewer never see them. Preserve this unless HR/legal and product owner explicitly approve a new matrix. | PDF personas and matrix descriptions conflict in places; README records the previously instructed matrix precedence. |
@@ -97,8 +97,10 @@ not silent assumptions.
 | Demand create/edit authority | Start with RMG and Admin; allow Delivery read-only forecast view. Decide if Delivery may propose demand for RMG review. | Controls data ownership and prevents unreviewed pipeline data from distorting planning. |
 | Historical snapshots | Begin with reproducible as-of calculations plus a recorded generation timestamp; persist snapshots only if users need historical forecast accuracy comparison. | Snapshotting adds storage, migration, retention, and correction behavior. |
 
-**Decision record:** Add the chosen values, approvers, date, and rationale to this plan before
-implementing schema changes.
+**Decision record:** The authoritative, management-editable decisions and approval history are
+maintained in [PHASE-2-DECISIONS.md](./PHASE-2-DECISIONS.md). Do not infer approval from the
+recommended defaults in this plan. Review the register before beginning schema changes or
+changing sensitive-data behavior.
 
 ## 5. Roles and data protection requirements
 
@@ -339,13 +341,27 @@ These are design constraints, not final schema/API contracts:
 
 Before implementation begins:
 
-1. Complete the decision table in Section 4 with approver/date/rationale.
+1. Complete pending items in `PHASE-2-DECISIONS.md` with approver/date/rationale.
 2. Add a requirements-to-code/test traceability list for each Phase 2 item.
 3. Create focused test cases for forecast math, score determinism, permission boundaries, and
    report reconciliation.
 4. Keep milestone completion and measured work in `TIMESHEET.md`; do not invent effort hours.
 5. Update README only when implementation status changes; this plan is not evidence that a
    feature already exists.
+
+### Milestone 0 baseline log
+
+| Date | Baseline finding | Status |
+|---|---|---|
+| 2026-10-12 | Recommendation search currently matches requested skills, filters optional portfolio/location/cost, and ranks by matched-skill count plus resource status. It does not account for requested proficiency/experience, certifications, availability dates, or provide per-dimension explanations. | Existing capability; Milestone 1 needs change. |
+| 2026-10-12 | Prisma has no pipeline-demand model. Existing Project and Allocation records describe operational project assignments, not confidence-weighted planned demand. | New capability; demand schema is blocked on approved definitions. |
+| 2026-10-12 | Capacity is a current resource-status count. Bench-aging and termination-trend JSON/CSV endpoints exist; no dedicated focused test files were found during the baseline scan. | Existing reports; correctness, scope, and export behavior still need focused verification. |
+
+### Milestone 1 progress log
+
+| Date | Change | Status |
+|---|---|---|
+| 2026-10-12 | Extended recommendation search to calculate requested-dimension match scores and explanations for skills, minimum proficiency/experience, certifications valid at the requested start date (or today), exact case-insensitive location/relocation, and requested-date FTE availability. Added criteria inputs and score explanations in the Resource Repository. No PIP data is queried or used. | Implementation in progress. Backend/frontend production builds pass; six focused matching unit tests pass. PIP-aware behavior, isolated API/role tests, and manual UI acceptance remain incomplete. |
 
 ## 11. Continuation prompt for a future assistant
 
