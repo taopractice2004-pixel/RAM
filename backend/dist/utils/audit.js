@@ -2,8 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.writeAudit = writeAudit;
 const prisma_1 = require("../prisma");
-async function writeAudit(params) {
-    await prisma_1.prisma.auditLog.create({
+async function writeAudit(params, client = prisma_1.prisma) {
+    await client.auditLog.create({
         data: {
             actorId: params.actorId ?? null,
             action: params.action,

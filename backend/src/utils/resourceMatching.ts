@@ -24,6 +24,14 @@ export interface MatchCertification {
   expiryDate: Date | null;
 }
 
+export interface DatedPipRecord {
+  id: string;
+  resourceId: string;
+  pipStatus: boolean;
+  reviewDate: Date;
+  createdAt: Date;
+}
+
 export interface ResourceMatchCriteria {
   skills: string[];
   minProficiency?: number;
@@ -156,6 +164,24 @@ export function getRecommendationStatusWeight(status: string) {
 
 export function getRecommendationStatusTieBreakWeight(status: string) {
   return status === "ON_ML" ? -1 : getRecommendationStatusWeight(status);
+}
+
+export function getLatestPipStatusByResource(records: DatedPipRecord[]) {
+  const latestByResource = new Map<string, DatedPipRecord>();
+  for (const record of records) {
+    const current = latestByResource.get(record.resourceId);
+    if (
+      !current ||
+      record.reviewDate > current.reviewDate ||
+      (record.reviewDate.getTime() === current.reviewDate.getTime() && (
+        record.createdAt > current.createdAt ||
+        (record.createdAt.getTime() === current.createdAt.getTime() && record.id > current.id)
+      ))
+    ) {
+      latestByResource.set(record.resourceId, record);
+    }
+  }
+  return new Map(Array.from(latestByResource, ([resourceId, record]) => [resourceId, record.pipStatus]));
 }
 
 export function getMaximumAllocatedFte(

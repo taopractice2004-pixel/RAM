@@ -9,6 +9,7 @@ import Allocations from "./pages/Allocations";
 import Bench from "./pages/Bench";
 import Approvals from "./pages/Approvals";
 import Reports from "./pages/Reports";
+import Demand from "./pages/Demand";
 import Admin from "./pages/Admin";
 
 export default function App() {
@@ -28,6 +29,7 @@ export default function App() {
         <Route path="resources/:id" element={<ResourceDetail />} />
         <Route path="allocations" element={<Allocations />} />
         <Route path="bench" element={<Bench />} />
+        <Route path="demand" element={<Demand />} />
         <Route
           path="approvals"
           element={

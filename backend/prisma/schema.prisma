@@ -66,6 +66,14 @@ enum ProjectStatus {
   CLOSED
 }
 
+enum DemandStage {
+  DRAFT
+  PIPELINE
+  COMMITTED
+  FULFILLED
+  CANCELLED
+}
+
 enum NotificationType {
   REALLOCATION
   BENCH_AGING
@@ -99,6 +107,9 @@ model User {
   portfolioAuthorizations PortfolioAuthorization[] @relation("UserAuthorizations")
   grantedAuthorizations   PortfolioAuthorization[] @relation("GrantedBy")
   createdAllocations      Allocation[]              @relation("AllocationCreatedBy")
+  ownedDemandRequests     DemandRequest[]           @relation("DemandOwner")
+  createdDemandRequests   DemandRequest[]           @relation("DemandCreatedBy")
+  updatedDemandRequests   DemandRequest[]           @relation("DemandUpdatedBy")
   auditLogs               AuditLog[]
   notifications           Notification[]
   initiatedTerminations   TerminationRequest[]      @relation("TerminationInitiator")
@@ -117,6 +128,7 @@ model Portfolio {
   resources       Resource[]
   projects        Project[]
   authorizations  PortfolioAuthorization[]
+  demandRequests  DemandRequest[]
   benchConfig     BenchConfig?
   allocations     Allocation[] @relation("AllocationPortfolio")
 }
@@ -234,6 +246,36 @@ model Project {
   portfolio   Portfolio    @relation(fields: [portfolioId], references: [id])
   tasks       Task[]
   allocations Allocation[]
+}
+
+model DemandRequest {
+  id                 String      @id @default(uuid())
+  portfolioId        String
+  projectName        String
+  projectCode        String?
+  clientName         String?
+  roleName           String
+  location           String?
+  requiredSkills     String[]
+  minProficiency     Int?
+  minExperienceYears Float?
+  requiredCertifications String[]
+  requiredFte        Decimal     @db.Decimal(5, 2)
+  startDate          DateTime
+  endDate            DateTime?
+  status             DemandStage @default(DRAFT)
+  confidenceStage    DemandStage @default(DRAFT)
+  ownerId            String
+  createdById        String
+  updatedById        String?
+  notes              String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id])
+  owner     User      @relation("DemandOwner", fields: [ownerId], references: [id])
+  createdBy User      @relation("DemandCreatedBy", fields: [createdById], references: [id])
+  updatedBy User?     @relation("DemandUpdatedBy", fields: [updatedById], references: [id])
 }
 
 model Task {

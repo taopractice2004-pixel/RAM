@@ -97,6 +97,7 @@ export interface ResourceRecommendation {
   statusWeight: number;
   score: number;
   matchScore: number;
+  pipStatus?: boolean | null;
   components: {
     key: string;
     score: number;
@@ -174,6 +175,30 @@ export interface MaternityLeaveRequest {
 }
 
 export type ApprovalRequest = TerminationRequest | MaternityLeaveRequest;
+
+export interface DemandRequest {
+  id: string;
+  portfolioId: string;
+  projectName: string;
+  projectCode?: string | null;
+  clientName?: string | null;
+  roleName: string;
+  location?: string | null;
+  requiredSkills: string[];
+  minProficiency?: number | null;
+  minExperienceYears?: number | null;
+  requiredCertifications: string[];
+  requiredFte: number | string;
+  startDate: string;
+  endDate?: string | null;
+  status: "DRAFT" | "PIPELINE" | "COMMITTED" | "FULFILLED" | "CANCELLED";
+  confidenceStage: "DRAFT" | "PIPELINE" | "COMMITTED" | "FULFILLED" | "CANCELLED";
+  ownerId?: string;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  portfolio?: Portfolio;
+}
 
 export interface Notification {
   id: string;

@@ -63,16 +63,28 @@ router.get("/quarantine/list", (0, rbac_1.requireRole)("ADMIN", "RMG", "HR"), as
     res.json(records);
 });
 router.post("/quarantine/:recordId/discard", (0, rbac_1.requireRole)("ADMIN", "RMG", "HR"), async (req, res) => {
-    const record = await prisma_1.prisma.importRecord.findUnique({ where: { id: req.params.recordId } });
+    const record = await prisma_1.prisma.$transaction(async (tx) => {
+        const quarantined = await tx.importRecord.findUnique({ where: { id: req.params.recordId } });
+        if (!quarantined)
+            return null;
+        if (quarantined.status !== "QUARANTINED") {
+            return { notQuarantined: true };
+        }
+        await tx.importRecord.delete({ where: { id: quarantined.id } });
+        await (0, audit_1.writeAudit)({
+            actorId: req.user.id,
+            action: "DISCARD_QUARANTINED_IMPORT_RECORD",
+            entityType: "ImportRecord",
+            entityId: quarantined.id,
+            before: quarantined,
+        }, tx);
+        return quarantined;
+    });
     if (!record)
         return res.status(404).json({ error: "Record not found" });
-    await (0, audit_1.writeAudit)({
-        actorId: req.user.id,
-        action: "DISCARD_QUARANTINED_IMPORT_RECORD",
-        entityType: "ImportRecord",
-        entityId: record.id,
-        before: record,
-    });
+    if ("notQuarantined" in record) {
+        return res.status(409).json({ error: "Only quarantined records can be discarded" });
+    }
     res.json({ ok: true });
 });
 // Re-submit a corrected version of a quarantined row as a fresh 1-row import.

@@ -14,6 +14,7 @@ import terminationRoutes from "./routes/terminations";
 import approvalRoutes from "./routes/approvals";
 import dashboardRoutes from "./routes/dashboard";
 import reportRoutes from "./routes/reports";
+import demandRoutes from "./routes/demand";
 import notificationRoutes from "./routes/notifications";
 import auditRoutes from "./routes/audit";
 
@@ -38,6 +39,7 @@ app.use("/api/terminations", requireAuth, terminationRoutes);
 app.use("/api/approvals", requireAuth, approvalRoutes);
 app.use("/api/dashboard", requireAuth, dashboardRoutes);
 app.use("/api/reports", requireAuth, reportRoutes);
+app.use("/api/demand", requireAuth, demandRoutes);
 app.use("/api/notifications", requireAuth, notificationRoutes);
 app.use("/api/audit", requireAuth, auditRoutes);
 

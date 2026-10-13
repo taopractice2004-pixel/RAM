@@ -18,6 +18,7 @@ const terminations_1 = __importDefault(require("./routes/terminations"));
 const approvals_1 = __importDefault(require("./routes/approvals"));
 const dashboard_1 = __importDefault(require("./routes/dashboard"));
 const reports_1 = __importDefault(require("./routes/reports"));
+const demand_1 = __importDefault(require("./routes/demand"));
 const notifications_1 = __importDefault(require("./routes/notifications"));
 const audit_1 = __importDefault(require("./routes/audit"));
 const auth_2 = require("./middleware/auth");
@@ -38,6 +39,7 @@ app.use("/api/terminations", auth_2.requireAuth, terminations_1.default);
 app.use("/api/approvals", auth_2.requireAuth, approvals_1.default);
 app.use("/api/dashboard", auth_2.requireAuth, dashboard_1.default);
 app.use("/api/reports", auth_2.requireAuth, reports_1.default);
+app.use("/api/demand", auth_2.requireAuth, demand_1.default);
 app.use("/api/notifications", auth_2.requireAuth, notifications_1.default);
 app.use("/api/audit", auth_2.requireAuth, audit_1.default);
 app.use((err, _req, res, _next) => {

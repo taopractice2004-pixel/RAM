@@ -56,6 +56,13 @@ function deriveDefaultSubCategory(resource, opts) {
         return "Bench";
     if (resource.status === "TERMINATED")
         return "Termination";
+    if (resource.status === "ALLOCATED") {
+        if (opts?.isInternalProject)
+            return "Internal Project";
+        if (opts?.billingDelayed)
+            return "Billing Delay";
+        return "Allocated";
+    }
     if (opts?.isInternalProject)
         return "Internal Project";
     if (opts?.billingDelayed)

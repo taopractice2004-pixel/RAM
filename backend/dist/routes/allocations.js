@@ -17,8 +17,12 @@ router.get("/", async (req, res) => {
         where.resourceId = resourceId;
     if (projectId)
         where.projectId = projectId;
-    if (status)
+    if (status) {
         where.status = { in: status.split(",") };
+    }
+    else {
+        where.status = { in: ["ACTIVE", "SCHEDULED"] };
+    }
     const allocations = await prisma_1.prisma.allocation.findMany({
         where,
         include: { resource: true, project: true, task: true, createdBy: { select: { id: true, name: true } } },

@@ -16,6 +16,7 @@ import {
   getAvailableFte,
   getRecommendationStatusTieBreakWeight,
   getRecommendationStatusWeight,
+  getLatestPipStatusByResource,
   normalizeMatchText,
   scoreResourceMatch,
 } from "../utils/resourceMatching";
@@ -246,7 +247,39 @@ router.get("/recommendations/search", async (req, res, next) => {
     return next(error);
   }
 
-  const ranked = candidates.map((candidate) => {
+  const matchingCandidates = candidates.filter((candidate) =>
+    criteria.skills.some((skillName) =>
+      candidate.skills.some((skill) => normalizeMatchText(skill.skill.name) === skillName)
+    )
+  );
+  const pipVisibleResources = matchingCandidates.filter((candidate) =>
+    canViewSensitiveResourceData(req.user!, candidate.portfolioId)
+  );
+  const pipVisibleResourceIds = new Set(pipVisibleResources.map((candidate) => candidate.id));
+  const pipStatusByResourceId = new Map<string, boolean>();
+  if (pipVisibleResourceIds.size > 0) {
+    try {
+      const pipRecords = await prisma.performanceRecord.findMany({
+        where: { resourceId: { in: Array.from(pipVisibleResourceIds) } },
+        orderBy: [{ reviewDate: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+        select: { id: true, resourceId: true, pipStatus: true, reviewDate: true, createdAt: true },
+      });
+      for (const [resourceId, pipStatus] of getLatestPipStatusByResource(pipRecords)) {
+        pipStatusByResourceId.set(resourceId, pipStatus);
+      }
+      await writeAudit({
+        actorId: req.user!.id,
+        action: "SENSITIVE_PIP_INDICATOR_VIEW",
+        entityType: "ResourceRecommendation",
+        portfolioId: criteria.portfolioId ?? null,
+        message: "Authorized-only latest PIP indicators included in resource recommendation response",
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  const ranked = matchingCandidates.map((candidate) => {
     const availableFte = availabilityRequested
       ? getAvailableFte(candidate.allocations, candidate.status, criteria.startDate!, criteria.endDate!)
       : undefined;
@@ -277,9 +310,12 @@ router.get("/recommendations/search", async (req, res, next) => {
       score: match.matchedSkills.length * 10 + statusWeight,
       matchScore: match.matchScore,
       components: match.components,
+      ...(pipVisibleResourceIds.has(candidate.id)
+        ? { pipStatus: pipStatusByResourceId.get(candidate.id) ?? null }
+        : {}),
       ...(availableFte !== undefined ? { availableFte } : {}),
     };
-  }).filter((recommendation) => recommendation.matchCount > 0).sort((a, b) =>
+  }).sort((a, b) =>
     b.matchScore - a.matchScore ||
     b.statusOrderWeight - a.statusOrderWeight ||
     (normalizeMatchText(a.resource.name) < normalizeMatchText(b.resource.name) ? -1
