@@ -3,13 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 const DEMO_ACCOUNTS = [
-  { email: "admin@ram.com", role: "Administrator" },
-  { email: "rmg@ram.com", role: "RMG (cross-portfolio)" },
-  { email: "delivery.fin@ram.com", role: "Delivery Lead - Fintech" },
-  { email: "delivery.health@ram.com", role: "Delivery Lead - Healthcare" },
-  { email: "hr@ram.com", role: "HR" },
-  { email: "ta@ram.com", role: "Talent Acquisition" },
-  { email: "viewer@ram.com", role: "Read-Only Viewer" },
+  { email: "admin@ram.com", role: "Administrator", password: "Password123!" },
+  { email: "rmg@ram.com", role: "RMG (cross-portfolio)", password: "Password123!" },
+  { email: "delivery.fin@ram.com", role: "Delivery Lead - Fintech", password: "Password123!" },
+  { email: "delivery.health@ram.com", role: "Delivery Lead - Healthcare", password: "Password123!" },
+  { email: "hr@ram.com", role: "HR", password: "Password123!" },
+  { email: "ta@ram.com", role: "Talent Acquisition", password: "Password123!" },
+  { email: "viewer@ram.com", role: "Read-Only Viewer", password: "Password123!" },
 ];
 
 export default function Login() {
@@ -63,7 +63,11 @@ export default function Login() {
                 <button
                   type="button"
                   className="text-brand-700 hover:underline font-medium"
-                  onClick={() => setEmail(acc.email)}
+                  onClick={() => {
+                    setEmail(acc.email);
+                    setPassword(acc.password);
+                    setError(null);
+                  }}
                 >
                   {acc.email}
                 </button>

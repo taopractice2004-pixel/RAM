@@ -4,6 +4,7 @@ import { portfolioReadWhere } from "../utils/scope";
 import { getBenchConfig } from "../services/benchService";
 import { toCsv } from "../utils/csv";
 import { deriveAllocationSummary, deriveBenchAgingDays, deriveTaoExperienceYears, deriveTotalYearsExperience } from "../utils/resourcePresentation";
+import { buildForecastBuckets } from "../utils/forecast";
 
 const router = Router();
 
@@ -78,10 +79,56 @@ router.get("/capacity", async (req, res) => {
   respond(req, res, Array.from(byPortfolio.values()), "capacity_report.csv");
 });
 
+router.get("/forecast", async (req, res) => {
+  const scope = portfolioReadWhere(req);
+
+  const [resources, demandRequests] = await Promise.all([
+    prisma.resource.findMany({
+      where: { ...scope, status: { notIn: ["TERMINATED", "ON_ML"] } },
+      include: {
+        allocations: {
+          where: { status: { in: ["ACTIVE", "SCHEDULED"] } },
+          select: {
+            status: true,
+            startDate: true,
+            endDate: true,
+            allocationPercent: true,
+          },
+        },
+      },
+    }),
+    prisma.demandRequest.findMany({
+      where: { ...scope, status: { in: ["DRAFT", "PIPELINE", "COMMITTED", "FULFILLED", "CANCELLED"] } },
+      select: {
+        id: true,
+        status: true,
+        requiredFte: true,
+        startDate: true,
+        endDate: true,
+      },
+    }),
+  ]);
+
+  const rows = buildForecastBuckets({
+    resources,
+    demandRequests,
+    startDate: new Date(),
+    horizonWeeks: 26,
+  });
+
+  respond(req, res, rows, "forecast_report.csv");
+});
+
 // FR-10.4: bench aging and termination trend report.
 router.get("/bench-aging", async (req, res) => {
+  const { portfolioId, status, minDays, maxDays, from, to, summary } = req.query as Record<string, string | undefined>;
+
   const resources = await prisma.resource.findMany({
-    where: { ...portfolioReadWhere(req), status: { in: ["BENCH_COMMITTED", "BENCH_TRUE"] } },
+    where: {
+      ...portfolioReadWhere(req),
+      ...(portfolioId ? { portfolioId } : {}),
+      ...(status ? { status: status as any } : { status: { in: ["BENCH_COMMITTED", "BENCH_TRUE"] } }),
+    },
     include: { portfolio: true },
   });
 
@@ -90,6 +137,16 @@ router.get("/bench-aging", async (req, res) => {
     resources.map(async (r) => {
       const config = await getBenchConfig(r.portfolioId);
       const days = r.benchSince ? Math.floor((now - r.benchSince.getTime()) / (1000 * 60 * 60 * 24)) : 0;
+      const benchDays = deriveBenchAgingDays(r) ?? days;
+      const fromDate = from ? new Date(from) : null;
+      const toDate = to ? new Date(to) : null;
+      const benchSince = r.benchSince ?? new Date();
+
+      if (minDays && benchDays < Number(minDays)) return null;
+      if (maxDays && benchDays > Number(maxDays)) return null;
+      if (fromDate && benchSince < fromDate) return null;
+      if (toDate && benchSince > toDate) return null;
+
       return {
         employeeId: r.employeeId,
         name: r.name,
@@ -97,32 +154,87 @@ router.get("/bench-aging", async (req, res) => {
         managerName: r.managerName,
         subCategory: r.subCategory,
         classification: r.status,
-        daysOnBench: deriveBenchAgingDays(r) ?? days,
+        daysOnBench: benchDays,
         agingPastThreshold: r.status === "BENCH_TRUE" && days >= config.trueBenchAgingThresholdDays,
+        benchSince: benchSince.toISOString().slice(0, 10),
       };
     })
   );
 
-  respond(req, res, rows, "bench_aging_report.csv");
+  const filteredRows = rows.filter(Boolean) as Record<string, unknown>[];
+  if (summary === "true") {
+    const byClassification = filteredRows.reduce((acc: Record<string, number>, row) => {
+      const classification = String(row.classification ?? "UNKNOWN");
+      acc[classification] = (acc[classification] ?? 0) + 1;
+      return acc;
+    }, {});
+    const avgDays = filteredRows.length === 0 ? 0 : filteredRows.reduce((sum, row) => sum + Number(row.daysOnBench ?? 0), 0) / filteredRows.length;
+
+    return res.json({
+      summary: {
+        totalRows: filteredRows.length,
+        averageDaysOnBench: Number(avgDays.toFixed(2)),
+        byClassification,
+        agingThresholdExceeded: filteredRows.filter((row) => row.agingPastThreshold === true).length,
+      },
+      rows: filteredRows,
+    });
+  }
+
+  respond(req, res, filteredRows, "bench_aging_report.csv");
 });
 
 router.get("/termination-trends", async (req, res) => {
+  const { portfolioId, status, reasonCode, from, to, summary } = req.query as Record<string, string | undefined>;
+
   const requests = await prisma.terminationRequest.findMany({
-    where: { status: "COMPLETED" },
+    where: {
+      ...(status ? { status: status as any } : { status: "COMPLETED" }),
+      ...(reasonCode ? { reasonCode } : {}),
+      ...(from || to ? {
+        decidedAt: {
+          ...(from ? { gte: new Date(from) } : {}),
+          ...(to ? { lte: new Date(to) } : {}),
+        },
+      } : {}),
+    },
     include: { resource: { include: { portfolio: true } } },
     orderBy: { decidedAt: "desc" },
   });
 
   const scope = portfolioReadWhere(req);
   const filtered = scope.portfolioId ? requests.filter((r) => scope.portfolioId.in.includes(r.resource.portfolioId)) : requests;
+  const filteredByPortfolio = portfolioId ? filtered.filter((r) => r.resource.portfolioId === portfolioId) : filtered;
 
-  const rows = filtered.map((r) => ({
+  const rows = filteredByPortfolio.map((r) => ({
     employeeId: r.resource.employeeId,
     name: r.resource.name,
     portfolio: r.resource.portfolio.name,
+    status: r.status,
     reasonCode: r.reasonCode,
     decidedAt: r.decidedAt?.toISOString().slice(0, 10) ?? "",
   }));
+
+  if (summary === "true") {
+    const byReason = rows.reduce((acc: Record<string, number>, row) => {
+      const reason = String(row.reasonCode ?? "UNKNOWN");
+      acc[reason] = (acc[reason] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    return res.json({
+      summary: {
+        totalRows: rows.length,
+        byReason,
+        byStatus: rows.reduce((acc: Record<string, number>, row) => {
+          const state = String(row.status ?? "UNKNOWN");
+          acc[state] = (acc[state] ?? 0) + 1;
+          return acc;
+        }, {}),
+      },
+      rows,
+    });
+  }
 
   respond(req, res, rows, "termination_trends_report.csv");
 });

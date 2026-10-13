@@ -1,6 +1,6 @@
 # Phase 2 Management Decision Register
 
-**Status:** Working register; Phase 2 implementation is not yet started.
+**Status:** Working register; Milestone 1 matching/PIP rules are in place, the Milestone 2 demand model and initial weekly forecast foundation are implemented, and the current focus is Milestone 4 bench/termination reporting validation plus final Phase 2 acceptance work.
 **Purpose:** Keep management-approved Phase 2 decisions separate from the technical plan so
 they can be reviewed and changed without searching implementation notes.
 **Decision owner:** Management / designated product owner. Record the approver and date for
@@ -38,6 +38,8 @@ every decision.
 | P2-D23 | Match score calculation | For each requested dimension: skill coverage is matched required skills / requested skills; proficiency/experience is satisfied minimum checks / requested minimum checks; certification coverage is matched requested certifications / requested certifications; location/relocation is a binary match; availability is free FTE / requested FTE, capped at 100%. Average only requested dimensions, show component reasons, then apply the approved status order as tie-break. | User, 2026-10-12 | Uses transparent, comparable dimension scores and preserves equal weighting among dimensions actually requested. |
 | P2-D24 | Matching location semantics | A requested location matches an exact case-insensitive normalized profile location; otherwise a candidate matches when willing to relocate. | User, 2026-10-12 | Applies a simple binary location/relocation score and provides an explicit explanation. |
 | P2-D26 | Certification validity in matching | Count a requested certification only if its issue date is on/before and expiry date is on/after the requested start date; when no start date is supplied, validate against today. A null issue or expiry date is treated as unbounded on that side. | User, 2026-10-12 | Prevents expired or not-yet-issued certifications from counting as current qualifications. |
+| P2-D25 | PIP influence on matching | For a user authorized to view PIP data, show an authorized-only PIP indicator; do not change match score, candidate membership, or ranking based on PIP. Unauthorized users must not receive the indicator or any PIP-derived result. | User, 2026-10-12 | Makes sensitive context visible only where permitted without using PIP as a staffing recommendation factor. |
+| P2-D27 | PIP indicator date basis | Use only the most recent dated performance record for each resource. If no record exists, return an unknown/absent indicator rather than inferring a negative status. | User, 2026-10-12 | Avoids exposing historical PIP as if it were current and avoids treating missing performance data as "not on PIP". |
 | P2-D19 | Demand record granularity | Each demand record represents one role requirement with its own skill/qualification profile, FTE quantity, and dates. Different roles for the same project are separate records. | User, 2026-10-12 | Keeps role-level matching and supply/demand comparison unambiguous and makes one CSV row map to one requirement. |
 
 ## Pending management/product decisions
@@ -55,7 +57,6 @@ updated.
 | P2-D16 | Report privacy/aggregation | Confirm whether HR requires minimum group sizes or suppression for termination reason/portfolio summaries. | Pending | — | Avoid identifying individuals from small-group reporting. |
 | P2-D17 | Demand lifecycle edge transitions | Decide whether a demand can move backwards between stages, whether Cancelled/Fulfilled records may be reopened, and what approvals/reasons are required for corrections after commitment. | Pending | — | Do not assume reversals or reopen behavior from the stage names alone. |
 | P2-D18 | Absence timing in supply | Define how current/future ON_ML and any partial leave affect weekly supply. Existing maternity-leave records do not expose a leave date range in the verified schema. | Pending | — | The approved rule excludes resources currently marked ON_ML; future/partial leave cannot be calculated until dates are available and semantics approved. |
-| P2-D25 | Matching PIP criterion semantics | Define what PIP-aware matching is permitted to do (for example, exclude, flag, or rank) and whether it applies only to current PIP status or historical records. | Pending | — | Permission boundary is approved, but the decision impact is not. Do not implement PIP-based rank/filter behavior until approved. |
 
 ## Change history
 
@@ -74,4 +75,6 @@ updated.
 | 2026-10-12 | Approved equal-weight match calculation: coverage for requested skills, minimum qualification checks, certifications, binary location/relocation, and capped available/requested FTE; average requested dimensions, explain components, then apply status tie-break. Location equivalence and PIP decision semantics remain pending. | Project assistant (user decision) |
 | 2026-10-12 | Approved exact case-insensitive location matching or willingness-to-relocate as a binary location match. | Project assistant (user decision) |
 | 2026-10-12 | Approved certification validity check at requested start date, or today if no start date is supplied; null issue/expiry dates are unbounded. | Project assistant (user decision) |
+| 2026-10-12 | Approved an authorized-only PIP indicator that does not alter match score, candidate membership, or ranking. Date/current-status semantics remain pending. | Project assistant (user decision) |
+| 2026-10-12 | Approved basing the authorized-only PIP indicator on the most recent dated performance record only; no record means unknown/absent, not a negative PIP assertion. | Project assistant (user decision) |
 | 2026-10-12 | Approved minimum proficiency/experience semantics: meet threshold for a match; below-threshold or missing values are misses for the requested dimension. | Project assistant (user decision) |

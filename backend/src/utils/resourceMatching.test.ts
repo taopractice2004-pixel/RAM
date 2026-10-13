@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   getAvailableFte,
+  getLatestPipStatusByResource,
   getRecommendationStatusTieBreakWeight,
   getRecommendationStatusWeight,
   scoreResourceMatch,
 } from "./resourceMatching";
+import { canViewSensitiveResourceData, readScopePortfolioIds } from "../middleware/rbac";
 
 const date = (value: string) => new Date(`${value}T00:00:00.000Z`);
 const baseCriteria = {
@@ -124,4 +126,36 @@ test("status remains a secondary tie-break in the approved order", () => {
   );
   assert.equal(getRecommendationStatusTieBreakWeight("ON_ML"), -1);
   assert.equal(getRecommendationStatusWeight("ON_ML"), 0);
+});
+
+test("PIP indicator uses only the most recent review and returns no entry when no review exists", () => {
+  const result = getLatestPipStatusByResource([
+    { id: "old", resourceId: "one", pipStatus: true, reviewDate: date("2025-01-01"), createdAt: date("2025-01-02") },
+    { id: "new", resourceId: "one", pipStatus: false, reviewDate: date("2026-01-01"), createdAt: date("2026-01-02") },
+    { id: "created-old", resourceId: "two", pipStatus: true, reviewDate: date("2026-01-01"), createdAt: date("2026-01-02") },
+    { id: "created-new", resourceId: "two", pipStatus: false, reviewDate: date("2026-01-01"), createdAt: date("2026-01-03") },
+    { id: "id-a", resourceId: "three", pipStatus: true, reviewDate: date("2026-01-01"), createdAt: date("2026-01-02") },
+    { id: "id-b", resourceId: "three", pipStatus: false, reviewDate: date("2026-01-01"), createdAt: date("2026-01-02") },
+  ]);
+
+  assert.equal(result.get("one"), false);
+  assert.equal(result.get("two"), false);
+  assert.equal(result.get("three"), false);
+  assert.equal(result.has("no-record"), false);
+});
+
+test("PIP indicator visibility follows the approved role and portfolio matrix", () => {
+  assert.equal(canViewSensitiveResourceData({ role: "ADMIN", authorizedPortfolioIds: [] }, "portfolio-1"), true);
+  assert.equal(canViewSensitiveResourceData({ role: "HR", authorizedPortfolioIds: [] }, "portfolio-1"), true);
+  assert.equal(canViewSensitiveResourceData({ role: "RMG", authorizedPortfolioIds: ["portfolio-1"] }, "portfolio-1"), true);
+  assert.equal(canViewSensitiveResourceData({ role: "RMG", authorizedPortfolioIds: ["portfolio-1"] }, "portfolio-2"), false);
+  assert.equal(canViewSensitiveResourceData({ role: "DELIVERY", authorizedPortfolioIds: ["portfolio-1"] }, "portfolio-1"), false);
+  assert.equal(canViewSensitiveResourceData({ role: "TA", authorizedPortfolioIds: ["portfolio-1"] }, "portfolio-1"), false);
+  assert.equal(canViewSensitiveResourceData({ role: "VIEWER", authorizedPortfolioIds: ["portfolio-1"] }, "portfolio-1"), false);
+});
+
+test("TA review access stays portfolio-scoped and read-only", () => {
+  assert.deepEqual(readScopePortfolioIds({ role: "TA", authorizedPortfolioIds: ["portfolio-1", "portfolio-2"] }), ["portfolio-1", "portfolio-2"]);
+  assert.equal(readScopePortfolioIds({ role: "ADMIN", authorizedPortfolioIds: ["portfolio-1"] }), null);
+  assert.equal(canViewSensitiveResourceData({ role: "TA", authorizedPortfolioIds: ["portfolio-1"] }, "portfolio-1"), false);
 });

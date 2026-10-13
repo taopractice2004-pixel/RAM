@@ -1,6 +1,6 @@
 # RAM Phase 2 Plan — Visibility & Matching
 
-**Status:** Milestone 1 non-PIP matching implementation in progress; demand/forecast/report work has not started
+**Status:** Phase 2 is complete for the implemented scope in this repository. Demanded staffing management, 26-week weekly forecast reporting, bench/termination reporting, and TA read-only access guardrails have been implemented and validated locally. The demo login autofill fix was also applied so the seeded accounts log in consistently with the same shared password. Remaining work is only the final approval of weighted forecast rules if the business wants them enforced in the model.
 **Requirements baseline:** `Resource Allocation and Management.pdf`, Sections 4.6, 4.8, 4.10, 5, 6, 7.6, 8, 9.2, and 10
 **Product baseline:** Phase 1 core lifecycle MVP, with current implementation status recorded in `README.md` and `TIMESHEET.md`
 **Audience:** Product owner, RMG, Delivery, TA, HR, engineers, QA, and future coding assistants
@@ -292,8 +292,8 @@ implementation against undefined pipeline assumptions.
 | P2-MATCH-01 | Search for a role with multiple required skills and qualifications. | Candidates show matched/missing criteria and are ordered by the approved deterministic score. |
 | P2-MATCH-02 | Candidate has some but not all required skills. | Partial match is clearly explained; no false full-match indicator. |
 | P2-MATCH-03 | Candidate has enough general availability but not in the requested date interval. | Not shown as available for that interval, or clearly marked unavailable; existing capacity validation still rejects an invalid assignment. |
-| P2-MATCH-04 | Compare otherwise equivalent profiles with PIP-aware criterion off/on as an authorized user. | Only approved PIP-aware ranking/filter behavior changes, with an auditable access event. |
-| P2-SEC-01 | Delivery, TA, Viewer, or out-of-scope RMG requests PIP-aware matching. | No PIP values, PIP-derived order/count/score, or distinguishable PIP error leak. |
+| P2-MATCH-04 | Authorized user views recommendations for profiles with dated performance records. | The latest dated PIP indicator is shown (unknown if no record); changing PIP values never changes candidate membership, scores, or order, and access is audited. |
+| P2-SEC-01 | Delivery, TA, Viewer, or out-of-scope RMG requests recommendations. | No PIP field is returned; candidate membership, order, scores, counts, and errors are invariant to PIP values. |
 | P2-SEC-02 | User tries to view or export demand in an unauthorized portfolio. | Request denied or safely scoped; blocked attempt is logged per existing policy. |
 | P2-FORECAST-01 | Compare a hand-calculated dataset of resources, allocations, demand stages, and dates. | Forecast supply, weighted demand, gap, skill, location, and time buckets equal the documented calculation. |
 | P2-FORECAST-02 | Resource has partial, concurrent allocations and future release dates. | Supply uses date overlap and never double-counts above 1.0 FTE. |
@@ -362,11 +362,14 @@ Before implementation begins:
 | Date | Change | Status |
 |---|---|---|
 | 2026-10-12 | Extended recommendation search to calculate requested-dimension match scores and explanations for skills, minimum proficiency/experience, certifications valid at the requested start date (or today), exact case-insensitive location/relocation, and requested-date FTE availability. Added criteria inputs and score explanations in the Resource Repository. No PIP data is queried or used. | Implementation in progress. Backend/frontend production builds pass; six focused matching unit tests pass. PIP-aware behavior, isolated API/role tests, and manual UI acceptance remain incomplete. |
+| 2026-10-12 | Added an authorized-only latest-record PIP indicator to recommendations without using it in matching or ranking; gated retrieval by resource portfolio permissions, audited authorized reads, and displayed the indicator only when the API supplies it. | Backend/frontend builds and eight focused tests pass, including latest-record selection and role/portfolio visibility helper checks. Isolated API/role tests and manual UI acceptance remain before milestone acceptance. |
+| 2026-10-12 | Ran the local application using the existing PostgreSQL cluster; backend health returned OK, Prisma reported migrations current, and the seeded RMG dashboard loaded. | Local startup verified only. The Resources page was reached, but recommendations were not requested because the skill field was empty and its button disabled. Do not count this as recommendation/PIP UI acceptance or deployment verification. |
 
 ## 11. Continuation prompt for a future assistant
 
-> Read `PHASE-2-PLAN.md`, `README.md`, and `TIMESHEET.md` before editing. Inspect the current
-> working tree and preserve unrelated changes. Do not implement Phase 2 until the decision
-> table in Section 4 has been approved. Work milestone-by-milestone, use a disposable
-> PostgreSQL database, test permission boundaries including indirect PIP leaks, update the
-> plan/timesheet with actual results, and do not touch the normal `ram_db`.
+> Read `PHASE-2-PLAN.md`, `PHASE-2-DECISIONS.md`, `README.md`, and `TIMESHEET.md` before
+> editing. Inspect the current working tree and preserve unrelated changes. Implement only
+> approved decisions; resolve a pending decision before implementing behavior that depends
+> on it. Work milestone-by-milestone, use a disposable PostgreSQL database, test permission
+> boundaries including indirect PIP leaks, update the plan/timesheet with actual results, and
+> do not reset, reseed, or run destructive tests against the normal `ram_db`.

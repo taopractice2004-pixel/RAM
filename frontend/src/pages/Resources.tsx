@@ -233,7 +233,7 @@ export default function Resources() {
             <p className="text-sm text-slate-500">No active resources match the requested skills.</p>
           )}
           <div className="grid gap-2">
-            {recommendations?.map(({ resource, matchCount, matchedSkills, matchScore, components, availableFte }) => (
+            {recommendations?.map(({ resource, matchCount, matchedSkills, matchScore, components, availableFte, pipStatus }) => (
               <button
                 key={resource.id}
                 type="button"
@@ -245,6 +245,11 @@ export default function Resources() {
                   <span className="ml-2 text-sm text-slate-500">{resource.portfolio?.name}</span>
                   <span className="ml-2 text-xs text-slate-500">{resource.status.replace(/_/g, " ")}</span>
                   {availableFte !== undefined && <span className="ml-2 text-xs text-slate-500">{availableFte.toFixed(2)} FTE available</span>}
+                  {pipStatus !== undefined && (
+                    <span className="ml-2 text-xs text-slate-500">
+                      PIP: {pipStatus === null ? "Unknown" : pipStatus ? "Yes" : "No"}
+                    </span>
+                  )}
                 </span>
                 <span className="text-sm font-medium text-slate-700">{matchScore}% match · {matchCount} skill{matchCount === 1 ? "" : "s"}: {matchedSkills.join(", ") || "none"}</span>
                 <span className="w-full space-y-1 text-xs text-slate-500">

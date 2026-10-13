@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
@@ -15,6 +15,7 @@ async function main() {
   await prisma.terminationRequest.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.auditLog.deleteMany();
+  await prisma.demandRequest.deleteMany();
   await prisma.allocation.deleteMany();
   await prisma.performanceRecord.deleteMany();
   await prisma.certification.deleteMany();
@@ -175,6 +176,12 @@ async function main() {
     { employeeId: "E1010", name: "Jamal Robinson", email: "jamal.robinson@corp.com", location: "Santa Clara, California", country: "USA", gender: "MALE", workLocation: "Santa Clara, California", managerName: "Shantanu", designation: "Associate Intern", dateOfJoining: "2025-05-15", priorExperienceYears: 0, portfolioId: broadcom.id, costRate: 125, skillSet: [["Java", 3, 3], ["Project Management", 3, 2]], subCategory: "Interns" },
     { employeeId: "E1011", name: "Kavya Iyer", email: "kavya.iyer@corp.com", location: "Hyderabad - JVP", country: "India", gender: "FEMALE", workLocation: "Hyderabad - JVP", managerName: "Vamsi", designation: "ML Engineer", dateOfJoining: "2022-08-10", priorExperienceYears: 3, portfolioId: aiMl.id, costRate: 132, skillSet: [["Python", 4, 4], ["Data Science", 3, 3]], subCategory: "Internal Project" },
     { employeeId: "E1012", name: "Liam O'Connor", email: "liam.oconnor@corp.com", location: "Visakhapatnam", country: "India", gender: "MALE", workLocation: "Visakhapatnam", managerName: "Laxman", designation: "Business Analyst", dateOfJoining: "2025-02-01", priorExperienceYears: 1.5, portfolioId: publicSector.id, costRate: 118, skillSet: [["SQL", 3, 3], ["Salesforce", 3, 2]] },
+    { employeeId: "E1013", name: "Ananya Nair", email: "ananya.nair@corp.com", location: "Bengaluru, Karnataka", country: "India", gender: "FEMALE", workLocation: "Bengaluru, Karnataka", managerName: "Venkat", designation: "Senior Frontend Engineer", dateOfJoining: "2020-09-14", priorExperienceYears: 6, portfolioId: fin.id, costRate: 155, skillSet: [["React", 5, 7], ["Node.js", 4, 5]], willingToRelocate: true },
+    { employeeId: "E1014", name: "Rohit Sharma", email: "rohit.sharma@corp.com", location: "Pune, Maharashtra", country: "India", gender: "MALE", workLocation: "Pune, Maharashtra", managerName: "Dhanasekar", designation: "Java Backend Engineer", dateOfJoining: "2021-05-20", priorExperienceYears: 5.5, portfolioId: health.id, costRate: 148, skillSet: [["Java", 5, 6], ["SQL", 4, 5]], willingToRelocate: true },
+    { employeeId: "E1015", name: "Priya Sethi", email: "priya.sethi@corp.com", location: "New Delhi, Delhi", country: "India", gender: "FEMALE", workLocation: "New Delhi, Delhi", managerName: "Vamsi", designation: "Data Engineer", dateOfJoining: "2023-02-11", priorExperienceYears: 3, portfolioId: aiMl.id, costRate: 136, skillSet: [["Data Science", 4, 4], ["Python", 5, 5], ["SQL", 4, 4]], willingToRelocate: true },
+    { employeeId: "E1016", name: "Vikas Reddy", email: "vikas.reddy@corp.com", location: "Hyderabad, Telangana", country: "India", gender: "MALE", workLocation: "Hyderabad, Telangana", managerName: "Viswa", designation: "Cloud Platform Engineer", dateOfJoining: "2022-11-08", priorExperienceYears: 4.5, portfolioId: autoIndustrial.id, costRate: 142, skillSet: [["AWS", 5, 5], ["Kubernetes", 4, 4], ["DevOps", 4, 4]], willingToRelocate: false },
+    { employeeId: "E1017", name: "Neha Kulkarni", email: "neha.kulkarni@corp.com", location: "Mumbai, Maharashtra", country: "India", gender: "FEMALE", workLocation: "Mumbai, Maharashtra", managerName: "Laxman", designation: "Change Manager", dateOfJoining: "2019-07-23", priorExperienceYears: 7, portfolioId: publicSector.id, costRate: 150, skillSet: [["Change Management", 5, 8], ["Project Management", 5, 7]], willingToRelocate: false },
+    { employeeId: "E1018", name: "Arjun Menon", email: "arjun.menon@corp.com", location: "Kochi, Kerala", country: "India", gender: "MALE", workLocation: "Remote / Kochi", managerName: "Venkat", designation: "Python Developer", dateOfJoining: "2024-03-01", priorExperienceYears: 2.5, portfolioId: fin.id, costRate: 130, skillSet: [["Python", 4, 3], ["SQL", 3, 3], ["AWS", 3, 2]], willingToRelocate: true },
   ];
 
   const resources: Record<string, any> = {};
@@ -278,6 +285,124 @@ async function main() {
     },
   });
   await prisma.resource.update({ where: { id: resources["E1009"].id }, data: { status: "ON_ML", subCategory: "ML" } });
+
+  // ---------- Demo demand records (show in Demand + Forecast screens) ----------
+  const demandSeed = [
+    {
+      portfolioId: fin.id,
+      projectName: "Core Banking Modernization",
+      projectCode: "FIN-P1",
+      clientName: "Nordic Bank",
+      roleName: "Senior React Engineer",
+      location: "Remote / Hyderabad",
+      requiredSkills: ["React", "Node.js"],
+      minProficiency: 4,
+      minExperienceYears: 5,
+      requiredCertifications: ["AWS Certified Solutions Architect"],
+      requiredFte: 2.5,
+      startDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
+      endDate: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000),
+      status: "PIPELINE",
+      confidenceStage: "PIPELINE",
+      ownerId: rmg.id,
+      createdById: rmg.id,
+      updatedById: rmg.id,
+      notes: "Pending client confirmation and budget sign-off.",
+    },
+    {
+      portfolioId: health.id,
+      projectName: "Patient Portal Revamp",
+      projectCode: "HC-P1",
+      clientName: "CarePoint Health",
+      roleName: "Java Engineer",
+      location: "Bengaluru",
+      requiredSkills: ["Java", "SQL"],
+      minProficiency: 4,
+      minExperienceYears: 4,
+      requiredCertifications: [],
+      requiredFte: 1.5,
+      startDate: new Date(Date.now() + 20 * 24 * 60 * 60 * 1000),
+      endDate: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
+      status: "COMMITTED",
+      confidenceStage: "COMMITTED",
+      ownerId: rmg2.id,
+      createdById: rmg2.id,
+      updatedById: rmg2.id,
+      notes: "Committed with a start window in the next two to three weeks.",
+    },
+    {
+      portfolioId: publicSector.id,
+      projectName: "Citizen Services Portal",
+      projectCode: "PS-P1",
+      clientName: "City Digital Services",
+      roleName: "Change Manager",
+      location: "Hyderabad",
+      requiredSkills: ["Change Management", "Project Management"],
+      minProficiency: 3,
+      minExperienceYears: 3,
+      requiredCertifications: [],
+      requiredFte: 1,
+      startDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+      endDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+      status: "DRAFT",
+      confidenceStage: "DRAFT",
+      ownerId: rmg2.id,
+      createdById: rmg2.id,
+      updatedById: rmg2.id,
+      notes: "Initial internal demand with partner review pending.",
+    },
+    {
+      portfolioId: fin.id,
+      projectName: "Digital Lending Platform",
+      projectCode: "FIN-P3",
+      clientName: "Apex Finance",
+      roleName: "React Frontend Engineer",
+      location: "Bengaluru",
+      requiredSkills: ["React", "Node.js", "SQL"],
+      minProficiency: 4,
+      minExperienceYears: 4,
+      requiredCertifications: ["AWS Certified Cloud Practitioner"],
+      requiredFte: 2,
+      startDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      endDate: new Date(Date.now() + 210 * 24 * 60 * 60 * 1000),
+      status: "PIPELINE",
+      confidenceStage: "PIPELINE",
+      ownerId: rmg.id,
+      createdById: rmg.id,
+      updatedById: rmg.id,
+      notes: "Client shortlist in progress for Bengaluru-based candidates.",
+    },
+    {
+      portfolioId: aiMl.id,
+      projectName: "AI Knowledge Assistant",
+      projectCode: "AIML-P1",
+      clientName: "Internal Innovation",
+      roleName: "ML Engineer",
+      location: "Hyderabad",
+      requiredSkills: ["Python", "Data Science", "AWS"],
+      minProficiency: 4,
+      minExperienceYears: 5,
+      requiredCertifications: [],
+      requiredFte: 1.5,
+      startDate: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),
+      endDate: new Date(Date.now() + 170 * 24 * 60 * 60 * 1000),
+      status: "COMMITTED",
+      confidenceStage: "COMMITTED",
+      ownerId: rmg2.id,
+      createdById: rmg2.id,
+      updatedById: rmg2.id,
+      notes: "Internal project requirement focused on Python and ML pipeline work.",
+    },
+  ];
+
+  for (const item of demandSeed) {
+    await prisma.demandRequest.create({
+      data: {
+        ...item,
+        requiredFte: new Prisma.Decimal(item.requiredFte.toString()),
+      },
+    });
+  }
 
   // Remaining resources (E1004, E1009, E1010, E1012) stay AVAILABLE (already default).
 

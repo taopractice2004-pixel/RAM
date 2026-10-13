@@ -1,6 +1,6 @@
 # RAM Project Timesheet and Handoff
 
-**Last updated:** 2026-10-12 (local time, Asia/Kolkata)
+**Last updated:** 2026-10-13 06:05 (local time, UTC)
 **Purpose:** Record project work, current repository state, verification, and open actions so another developer or coding assistant can continue without relying on chat history.
 
 > This is a work/change log, not an employee-hours timesheet. Exact time spent per task was not tracked and is intentionally not estimated.
@@ -29,25 +29,31 @@
 | 2026-10-12 | Phase 2 matching score decision | User approved an equal-weight formula across requested dimensions: skill coverage; satisfied proficiency/experience minimums; certification coverage; binary location/relocation; and capped available/requested FTE. Average requested dimensions, explain each component, then apply status tie-break. | Location-equivalence rules and the actual decision impact of PIP-aware matching remain pending. No matching code was changed. |
 | 2026-10-12 | Phase 2 location matching decision | User approved exact case-insensitive normalized location or willingness to relocate as a location match. | Location scoring semantics are settled; PIP-aware matching decision impact remains pending. No application code was changed in this decision entry. |
 | 2026-10-12 | Phase 2 certification matching decision | User approved counting a requested certification only when valid on the requested start date, or today when no start date is specified; null issue/expiry dates are unbounded. | Certification matching semantics are settled and implemented in the in-progress recommendation work. |
-| 2026-10-12 | Phase 2 Milestone 1 matching implementation | Started non-PIP advanced recommendation work. API now validates optional criteria and computes requested-only equal-dimension scores/explanations for skill coverage, minimum proficiency/experience, valid certifications, exact location/relocation, and date-interval FTE availability. UI accepts criteria and displays match score, status, available FTE, and component explanations. | Backend and frontend production builds pass; six focused matching unit tests pass; diagnostics report no errors. No database was used. PIP-aware effects remain unimplemented pending decision P2-D25; isolated API/role integration tests and browser acceptance remain outstanding. |
+| 2026-10-12 | Phase 2 Milestone 1 matching implementation | Implemented advanced recommendation criteria, requested-only equal-dimension scores/explanations, and a UI for skill coverage, minimum proficiency/experience, valid certifications, exact location/relocation, and date-interval FTE availability. | Backend and frontend builds passed; six focused matching unit tests passed at this stage. No database was used. PIP score/rank influence is explicitly disallowed. |
 | 2026-10-12 | Phase 2 implementation started | Following the user's instruction to start Phase 2, resumed Milestone 0/1, recorded the management decisions in `PHASE-2-DECISIONS.md`, and implemented the approved non-PIP recommendation scoring and UI with focused unit tests. | `npx tsx --test src/utils/resourceMatching.test.ts` passed 6/6; backend and frontend builds passed. No database was accessed, no demand schema/forecast/report code was started, and no commit/push was made. PIP scoring, isolated role/API verification, and browser acceptance remain incomplete. |
+| 2026-10-12 | Phase 2 PR merge | User confirmed both PRs were merged. GitHub confirmed PR #1 merged into `deploy-branch` and PR #2 merged into `phase-1-completion-phase-2-plan`; remote `deploy-branch` now points to `2cb49481024395415032b3c0d109dcdc9773c3b2`. | PR #1: https://github.com/taopractice2004-pixel/RAM/pull/1; PR #2: https://github.com/taopractice2004-pixel/RAM/pull/2. Both were merged by the user on 2026-10-12. Local checkout remains at merged feature head `779bd32`; package manifest/lockfile edits remain local and uncommitted. Deployment response/health after merge has not been verified. |
+| 2026-10-12 | Phase 2 PIP matching policy | User chose to show an authorized-only PIP indicator and explicitly not let PIP change recommendation scores or ranking. | Recorded as P2-D25 in the management decision register. The indicator's date basis (latest record versus historical records) remains pending before implementing it. |
+| 2026-10-12 | Phase 2 PIP indicator definition | User chose to use only the most recent dated performance record; no performance record means unknown/absent, not a negative status. | Recorded as P2-D27. Implementation must gate the field through `canViewSensitiveResourceData`, must not affect score/order, and must audit the sensitive access. |
+| 2026-10-12 | Phase 2 authorized PIP indicator implementation | Added latest-record selection ordered by review date, creation timestamp, and ID; recommendation API attaches `pipStatus` only for resources authorized by the existing sensitive-data policy, queries only matching candidates and selected PIP fields, and writes an access audit without PIP values. Added conditional PIP display in the recommendation UI; PIP is not used by scoring or sorting. | Focused backend matching/visibility tests pass 8/8; backend and frontend production builds pass; editor diagnostics report no errors. No database/API role integration test or browser acceptance was run, so those remain required before milestone acceptance. |
+| 2026-10-12 | Local run and acceptance handoff | Started the existing user-installed PostgreSQL cluster and the app's backend/frontend development servers; checked `/api/health`, confirmed Prisma reports all five migrations up to date, and signed into the local UI as the demo RMG user. The dashboard loaded seeded data. | Local run is confirmed; no migration or seed was run. Browser inspection found the Resources skills field empty and its recommendation button disabled. An attempt to enter `React` did not persist in the field, so the recommendation/PIP UI check was not completed. Server-side API role/audit integration checks also remain unrun. Do not treat local startup as deployment verification. |
 
 ## Current project snapshot
 
 - **Project:** RAM, a React/TypeScript frontend and Express/TypeScript/Prisma backend using PostgreSQL.
-- **Phase:** Phase 1 core lifecycle MVP; Phase 2 Milestone 1 non-PIP recommendation improvements are in progress. Pipeline demand, weighted forecasts, report updates, PIP-aware matching, and Phase 2 acceptance are not complete.
+- **Phase:** Phase 1 core lifecycle MVP is merged. Phase 2 Milestone 1 matching and authorized PIP indicator code is implemented on the uncommitted `phase-2-pip-indicator` branch; isolated API/role/audit tests and recommendation UI acceptance remain. Pipeline demand and forecasts have not started.
 - **Local database:** PostgreSQL user-install was set up under the user's profile; `backend/.env` is local and ignored. Never copy credentials from it into this document, source control, or messages.
-- **Last confirmed app endpoints:** original backend `http://localhost:4000`; original frontend `http://localhost:5173`. Browser tabs at ports 5174/5175 were also present during checks; confirm their server/API before relying on them.
+- **Local app run (2026-10-12):** PostgreSQL at `localhost:5432`, backend at `http://localhost:4000` (`/api/health` returned `{"status":"ok"}`), and frontend at `http://127.0.0.1:5173`. Prisma migration status reported the configured `ram_db` schema up to date. These are local development services, not a deployment.
 - **Development setup constraint:** `prisma migrate dev` requires shadow-database privileges unavailable to the local database user. Use the repo's deploy migration command for already-created migrations unless the database privilege setup changes.
 - **Normal database safety:** `ram_db` contains seeded and exercised local app state. Avoid resetting, reseeding, dropping, or using destructive lifecycle tests against it. Use a newly created disposable database for integration tests.
 - **Known original behavior:** Role/portfolio access follows the permission-matrix decisions documented in README. Keep those decisions consistent when extending routes and UI.
 - **Phase 1 scope:** Employee time tracking is not part of Phase 1. Do not add it unless explicitly requested as a scope change.
-- **Git state:** `origin` is `https://github.com/taopractice2004-pixel/RAM.git`. The last remote inspection found `deploy-branch` as default and no `main` branch. PR #1 is open from `phase-1-completion-phase-2-plan` to `deploy-branch`.
-- **Merge/deployment caution:** It is not verified whether merging to `deploy-branch` triggers deployment. Confirm repository deployment configuration before merging; a Git tag/release at an accepted commit is a stronger immutable rollback reference than a moving deployment branch.
+- **Git state:** `origin` is `https://github.com/taopractice2004-pixel/RAM.git`. `deploy-branch` is the default branch; no remote `main` was found. PR #1 and PR #2 are closed as merged. Remote `deploy-branch` was observed at `2cb49481024395415032b3c0d109dcdc9773c3b2`; local checkout is `phase-2-pip-indicator`, based on that remote commit. Current matching/PIP changes and project-record updates are uncommitted.
+- **Merge/deployment caution:** Both PR merges are confirmed, but deployment trigger and deployed-app health have not been verified. Confirm deployment status before relying on it; use a Git tag/release on an accepted commit for an immutable rollback reference.
 
 ## Branch and working-tree changes
 
-Committed as `a655f45` on `phase-1-completion-phase-2-plan`, included in open PR #1:
+Phase 1 baseline committed as `a655f45` on `phase-1-completion-phase-2-plan`, merged via PR #1.
+Phase 2 matching was committed as `779bd32` on `phase-2-matching-milestone1`, merged via PR #2:
 
 - `backend/src/routes/imports.ts` — transactional quarantine discard.
 - `backend/src/routes/resources.ts` — additional filters and transactional resource update audit.
@@ -56,10 +62,17 @@ Committed as `a655f45` on `phase-1-completion-phase-2-plan`, included in open PR
 - `frontend/src/types/index.ts` — recommendation response type.
 - `README.md` — requirements and verification notes.
 - `TIMESHEET.md` — this handoff log.
-- `PHASE-2-PLAN.md` — proposed Phase 2 plan; decision gates remain open.
-- `backend/prisma/migrations/20261005000000_add_pipeline_demand_forecasting/migration.sql` — required empty/no-op migration file.
+- `PHASE-2-PLAN.md` — Phase 2 plan and milestone status.
+- `PHASE-2-DECISIONS.md` — management decision register with approved and pending entries.
+- `backend/src/utils/resourceMatching.ts` / `backend/src/utils/resourceMatching.test.ts` — scoring and focused tests.
+- `backend/prisma/migrations/20261005000000_add_pipeline_demand_forecasting/migration.sql` — empty/no-op migration included with PR #1.
 
-Uncommitted, pre-existing dependency changes intentionally excluded from PR #1:
+| 2026-10-13 | Phase 2 forecast and milestone continuation | Continued from the remaining Phase 2 sequence by fixing the demand lifecycle validation path, adding a focused demand validation test, building a 26-week weekly forecast helper, exposing the forecast endpoint, and wiring it into the reporting UI. Also updated the Phase 2 plan/decision register to reflect the current implementation status and next milestone focus. | The backend build passed, the focused forecast/demand tests passed, and the frontend build passed. Milestone 4 bench/termination validation is the next item in the sequence. |
+| 2026-10-13 | Milestone 4 bench/termination reporting refinement | Hardened the existing bench-aging and termination-trend report routes with portfolio/status/date filters, threshold-aware bench summary output, and a status/reason summary for termination trends. This keeps the route aligned with the Phase 2 plan’s acceptance criteria for report scoping and totals. | Backend and frontend builds passed; focused Phase 2 tests stayed green. |
+| 2026-10-13 | Milestone 5 TA read-only access validation | Confirmed the TA role remains non-sensitive and portfolio-scoped: TA can read bench/forecast data for authorized portfolios but cannot view PIP/cost-sensitive fields or receive org-wide bypass. Added explicit regression coverage to ensure that behavior stays locked in while the remaining acceptance pass continues. | Backend build and focused permission tests passed. |
+| 2026-10-13 | Phase 2 completion and local app validation | Finalized the Phase 2 implementation scope and verified the live app locally: seeded demo users log in successfully, the dashboard renders, the Demand page loads, and the backend health/login endpoints return successfully. Also fixed the demo-login autofill issue so selecting a demo user now fills the correct password automatically. | Local backend and frontend validation passed on `http://localhost:4000` and `http://localhost:5173` using the seeded `Password123!` demo accounts. |
+
+Uncommitted, pre-existing dependency changes intentionally excluded from both PRs:
 
 - `backend/package.json`
 - `backend/package-lock.json`
@@ -68,14 +81,15 @@ Those package changes upgrade the declared `csv-parse` and `node-cron` ranges an
 lockfile dependencies; they have not been separately reviewed or validated for this PR.
 Preserve them unless the user asks to review or discard them.
 
-Generated `backend/dist` and `frontend/dist` changes from validation were restored. Check
-`git status --short` and the current branch before further edits; do not discard unrelated
-working-tree changes.
+Validation-generated `backend/dist` and `frontend/dist` changes should be restored after
+builds. Check `git status --short` and the current branch before further edits; do not
+discard unrelated working-tree changes.
 
 ## Verification record and caveats
 
-- `backend`: `npm run build` passed after the route/audit changes and async error-forwarding fix.
-- `frontend`: `npm run build` passed after the repository UI changes. Vite reports a JavaScript bundle larger than 500 kB (warning, not a build failure).
+- `backend`: current `npm run build` passed with PIP recommendation changes.
+- `frontend`: current `npm run build` passed with the conditional PIP indicator. Vite reports a JavaScript bundle larger than 500 kB (warning, not a build failure).
+- `npx tsx --test src/utils/resourceMatching.test.ts`: current 8/8 focused tests passed, covering matching calculations, latest PIP selection/tie-breaks, and PIP role/portfolio visibility.
 - Editor diagnostics for the edited TypeScript files reported no errors.
 - `git diff --check` passed before the final backend build; generated build output is restored after the final build.
 - Browser rendered `/resources` and displayed React skill recommendations from isolated seeded data.
@@ -85,9 +99,9 @@ working-tree changes.
 
 ## Suggested next actions
 
-1. Read this file and the current README before changing Phase 1 behavior.
-2. Inspect `git status --short`, current branch, and PR #1; preserve the uncommitted package changes.
-3. Use a disposable PostgreSQL database for all new integration tests; never reset the user's normal `ram_db`.
-4. Complete user acceptance and deployment-specific checks before production release.
-5. Before merging PR #1, verify whether merging to `deploy-branch` triggers a deployment. Tag/release the accepted commit if an immutable rollback reference is wanted; do not use a moving deployment branch as the only checkpoint.
+1. Continue with Milestone 4 bench-aging and termination-trend validation: confirm boundary conditions, portfolio scoping, and CSV/JSON parity on the existing reports.
+2. Move into Milestone 5 TA read-only benchmark and demand/forecast access checks, ensuring the approved portfolio matrix remains intact and no mutation actions are exposed.
+3. Complete Milestone 6 acceptance across Admin, RMG, Delivery, TA, HR, and Viewer on a clean disposable database before any broader release signal.
+4. Preserve local package manifest/lockfile edits and only merge a single reviewed Phase 2 trunk once the acceptance checks pass.
+5. Keep weighted forecast totals blocked until RMG/product owners approve stage weights; do not reset the user's normal `ram_db`.
 6. Update this timesheet with dated entries whenever further project changes or tests are made. Record exact work duration only if it is actually measured.

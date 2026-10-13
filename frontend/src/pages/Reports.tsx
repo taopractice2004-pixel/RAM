@@ -5,6 +5,7 @@ import { api } from "../api/client";
 const REPORTS = [
   { key: "utilization", label: "Utilization", endpoint: "/reports/utilization" },
   { key: "capacity", label: "Capacity Planning", endpoint: "/reports/capacity" },
+  { key: "forecast", label: "Forecast", endpoint: "/reports/forecast" },
   { key: "bench-aging", label: "Bench Aging", endpoint: "/reports/bench-aging" },
   { key: "termination-trends", label: "Termination Trends", endpoint: "/reports/termination-trends" },
 ];

@@ -110,9 +110,9 @@ HR/Payroll & ERP integrations, and public/partner-facing APIs.
 
 The proposed Phase 2 scope, decision gates, milestones, and acceptance criteria are recorded
 in [PHASE-2-PLAN.md](PHASE-2-PLAN.md), with management approvals and pending choices tracked
-separately in [PHASE-2-DECISIONS.md](PHASE-2-DECISIONS.md). Phase 2 implementation has begun
-with non-PIP recommendation matching improvements; the overall phase is not complete. The
-timesheet records current implementation and verification status.
+separately in [PHASE-2-DECISIONS.md](PHASE-2-DECISIONS.md). Phase 2 is implemented and validated
+locally in the current repository for the approved demand, forecast, bench/termination, and
+TA access scope. The timesheet records the final implementation and verification status.
 
 ## Design decisions & assumptions
 
