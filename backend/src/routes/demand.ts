@@ -1,4 +1,4 @@
-import { Router } from "express";
+import express, { NextFunction, Request, Response, Router } from "express";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../prisma";
@@ -8,6 +8,15 @@ import { parseDemandCsvList, validateDemandTransition } from "../utils/demandVal
 import { portfolioReadWhere } from "../utils/scope";
 
 const router = Router();
+const MAX_DOCUMENT_SIZE = 10 * 1024 * 1024;
+const DOCUMENT_TYPES: Record<string, { mimeType: string; signature: (data: Buffer) => boolean }> = {
+  ".pdf": { mimeType: "application/pdf", signature: (data) => data.subarray(0, 5).toString() === "%PDF-" },
+  ".docx": {
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    signature: (data) => data[0] === 0x50 && data[1] === 0x4b,
+  },
+};
+const documentMetadata = { select: { fileName: true, mimeType: true, fileSize: true, updatedAt: true } };
 
 const demandStageEnum = z.enum(["DRAFT", "PIPELINE", "COMMITTED", "FULFILLED", "CANCELLED"]);
 
@@ -44,7 +53,7 @@ router.get("/", async (req, res) => {
 
   const demandRequests = await prisma.demandRequest.findMany({
     where,
-    include: { portfolio: true, owner: true, createdBy: true, updatedBy: true },
+    include: { portfolio: true, owner: true, createdBy: true, updatedBy: true, document: documentMetadata },
     orderBy: { createdAt: "desc" },
   });
 
@@ -54,7 +63,7 @@ router.get("/", async (req, res) => {
 router.get("/:id", async (req, res) => {
   const demand = await prisma.demandRequest.findUnique({
     where: { id: req.params.id },
-    include: { portfolio: true, owner: true, createdBy: true, updatedBy: true },
+    include: { portfolio: true, owner: true, createdBy: true, updatedBy: true, document: documentMetadata },
   });
   if (!demand) return res.status(404).json({ error: "Demand request not found" });
 
@@ -64,6 +73,111 @@ router.get("/:id", async (req, res) => {
   }
 
   res.json(demand);
+});
+
+router.put(
+  "/:id/document",
+  requireRole("ADMIN", "RMG"),
+  express.raw({ type: "application/octet-stream", limit: MAX_DOCUMENT_SIZE }),
+  async (req: Request, res: Response) => {
+    const demand = await prisma.demandRequest.findUnique({ where: { id: req.params.id } });
+    if (!demand) return res.status(404).json({ error: "Demand request not found" });
+
+    if (req.user!.role === "RMG") {
+      const authorized = await assertPortfolioAuthorized(req, res, [demand.portfolioId], "DemandRequest", demand.id);
+      if (!authorized) return;
+    }
+
+    const encodedFileName = req.header("x-file-name");
+    if (!encodedFileName) return res.status(400).json({ error: "A file name is required" });
+
+    let submittedFileName: string;
+    try {
+      submittedFileName = decodeURIComponent(encodedFileName);
+    } catch {
+      return res.status(400).json({ error: "The file name is invalid" });
+    }
+
+    const fileName = submittedFileName.replace(/\\/g, "/").split("/").pop()?.trim() ?? "";
+    if (!fileName || /[\u0000-\u001f\u007f]/.test(fileName)) {
+      return res.status(400).json({ error: "The file name is invalid" });
+    }
+
+    const documentType = DOCUMENT_TYPES[fileName.slice(fileName.lastIndexOf(".")).toLowerCase()];
+    if (!documentType) return res.status(400).json({ error: "Only PDF and DOCX documents are supported" });
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      return res.status(400).json({ error: "The uploaded document is empty or has an invalid content type" });
+    }
+    if (!documentType.signature(req.body)) {
+      return res.status(400).json({ error: "The uploaded file does not match its file extension" });
+    }
+
+    const previous = await prisma.demandDocument.findUnique({
+      where: { demandRequestId: demand.id },
+      select: { fileName: true, mimeType: true, fileSize: true },
+    });
+    const document = await prisma.demandDocument.upsert({
+      where: { demandRequestId: demand.id },
+      create: {
+        demandRequestId: demand.id,
+        fileName,
+        mimeType: documentType.mimeType,
+        fileSize: req.body.length,
+        data: req.body,
+      },
+      update: {
+        fileName,
+        mimeType: documentType.mimeType,
+        fileSize: req.body.length,
+        data: req.body,
+      },
+      select: { fileName: true, mimeType: true, fileSize: true, updatedAt: true },
+    });
+
+    await writeAudit({
+      actorId: req.user!.id,
+      action: previous ? "REPLACE_DEMAND_DOCUMENT" : "UPLOAD_DEMAND_DOCUMENT",
+      entityType: "DemandRequest",
+      entityId: demand.id,
+      portfolioId: demand.portfolioId,
+      before: previous,
+      after: { fileName: document.fileName, mimeType: document.mimeType, fileSize: document.fileSize },
+    });
+
+    res.status(previous ? 200 : 201).json(document);
+  },
+  (error: unknown, _req: Request, res: Response, next: NextFunction) => {
+    if (typeof error === "object" && error !== null && "type" in error && error.type === "entity.too.large") {
+      return res.status(413).json({ error: "Documents must be 10 MB or smaller" });
+    }
+    next(error);
+  }
+);
+
+router.get("/:id/document", requireRole("ADMIN", "RMG"), async (req, res) => {
+  const document = await prisma.demandDocument.findUnique({
+    where: { demandRequestId: req.params.id },
+    include: { demandRequest: { select: { id: true, portfolioId: true } } },
+  });
+  if (!document) return res.status(404).json({ error: "Demand document not found" });
+
+  if (req.user!.role === "RMG") {
+    const authorized = await assertPortfolioAuthorized(
+      req,
+      res,
+      [document.demandRequest.portfolioId],
+      "DemandRequest",
+      document.demandRequest.id
+    );
+    if (!authorized) return;
+  }
+
+  const encodedFileName = encodeURIComponent(document.fileName);
+  res.setHeader("Content-Type", document.mimeType);
+  res.setHeader("Content-Disposition", `attachment; filename="demand-document"; filename*=UTF-8''${encodedFileName}`);
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Cache-Control", "no-store");
+  res.send(document.data);
 });
 
 router.post("/validate-csv", requireRole("ADMIN", "RMG"), async (req, res) => {

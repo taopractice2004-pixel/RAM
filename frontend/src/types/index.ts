@@ -198,6 +198,12 @@ export interface DemandRequest {
   createdAt: string;
   updatedAt: string;
   portfolio?: Portfolio;
+  document?: {
+    fileName: string;
+    mimeType: string;
+    fileSize: number;
+    updatedAt: string;
+  } | null;
 }
 
 export interface Notification {

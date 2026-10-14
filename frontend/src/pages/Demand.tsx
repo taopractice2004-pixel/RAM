@@ -1,10 +1,18 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import axios from "axios";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { DemandRequest, Portfolio } from "../types";
 
 const STAGES = ["DRAFT", "PIPELINE", "COMMITTED", "FULFILLED", "CANCELLED"];
+
+function documentErrorMessage(error: unknown): string {
+  if (axios.isAxiosError<{ error?: string }>(error)) {
+    return error.response?.data?.error ?? error.message;
+  }
+  return error instanceof Error ? error.message : "Unable to process the demand document.";
+}
 
 export default function Demand() {
   const { user, portfolios } = useAuth();
@@ -58,6 +66,32 @@ export default function Demand() {
   const importMutation = useMutation({
     mutationFn: async () => api.post("/demand/import", { csvText }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["demand"] }),
+  });
+
+  const uploadDocumentMutation = useMutation({
+    mutationFn: async ({ demandId, file }: { demandId: string; file: File }) =>
+      api.put(`/demand/${demandId}/document`, file, {
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "X-File-Name": encodeURIComponent(file.name),
+        },
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["demand"] }),
+  });
+
+  const downloadDocumentMutation = useMutation({
+    mutationFn: async ({ demandId, fileName }: { demandId: string; fileName: string }) => {
+      const response = await api.get<Blob>(`/demand/${demandId}/document`, { responseType: "blob" });
+      return { blob: response.data, fileName };
+    },
+    onSuccess: ({ blob, fileName }) => {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
   });
 
   const demandByPortfolio = useMemo(() => {
@@ -150,6 +184,11 @@ export default function Demand() {
 
       <div className="card p-4">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600">Demand list</h2>
+        {(uploadDocumentMutation.isError || downloadDocumentMutation.isError) && (
+          <p className="mt-2 text-sm text-red-600">
+            {documentErrorMessage(uploadDocumentMutation.error ?? downloadDocumentMutation.error)}
+          </p>
+        )}
         {isLoading ? <p className="text-sm text-slate-500">Loading demand...</p> : (
           <div className="overflow-x-auto mt-3">
             <table className="w-full text-left text-sm">
@@ -161,6 +200,7 @@ export default function Demand() {
                   <th className="py-2 pr-3">FTE</th>
                   <th className="py-2 pr-3">Status</th>
                   <th className="py-2 pr-3">Dates</th>
+                  <th className="py-2 pr-3">Document</th>
                 </tr>
               </thead>
               <tbody>
@@ -172,6 +212,33 @@ export default function Demand() {
                     <td className="py-2 pr-3">{item.requiredFte}</td>
                     <td className="py-2 pr-3"><span className="badge bg-slate-100 text-slate-700">{item.status}</span></td>
                     <td className="py-2 pr-3">{new Date(item.startDate).toLocaleDateString()} - {item.endDate ? new Date(item.endDate).toLocaleDateString() : "Open"}</td>
+                    <td className="py-2 pr-3">
+                      <div className="flex min-w-56 flex-col items-start gap-2">
+                        {item.document ? (
+                          <button
+                            className="text-left text-blue-700 underline"
+                            onClick={() => downloadDocumentMutation.mutate({ demandId: item.id, fileName: item.document!.fileName })}
+                            disabled={downloadDocumentMutation.isPending}
+                          >
+                            Download {item.document.fileName}
+                          </button>
+                        ) : <span className="text-slate-500">No document</span>}
+                        <label className="text-xs text-slate-600">
+                          {uploadDocumentMutation.isPending ? "Uploading..." : item.document ? "Replace document" : "Upload PDF/DOCX (max 10 MB)"}
+                          <input
+                            className="mt-1 block max-w-56 text-xs"
+                            type="file"
+                            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                            disabled={uploadDocumentMutation.isPending}
+                            onChange={(event) => {
+                              const file = event.currentTarget.files?.[0];
+                              if (file) uploadDocumentMutation.mutate({ demandId: item.id, file });
+                              event.currentTarget.value = "";
+                            }}
+                          />
+                        </label>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
