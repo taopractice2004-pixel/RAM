@@ -161,6 +161,9 @@ async function main() {
     subCategory?: string;
     dateOfJoining?: string;
     priorExperienceYears?: number;
+    status?: "AVAILABLE" | "BENCH_COMMITTED" | "BENCH_TRUE" | "ON_ML";
+    benchDays?: number;
+    currency?: string;
   }
 
   const resourceDefs: ResourceDef[] = [
@@ -182,6 +185,23 @@ async function main() {
     { employeeId: "E1016", name: "Vikas Reddy", email: "vikas.reddy@corp.com", location: "Hyderabad, Telangana", country: "India", gender: "MALE", workLocation: "Hyderabad, Telangana", managerName: "Viswa", designation: "Cloud Platform Engineer", dateOfJoining: "2022-11-08", priorExperienceYears: 4.5, portfolioId: autoIndustrial.id, costRate: 142, skillSet: [["AWS", 5, 5], ["Kubernetes", 4, 4], ["DevOps", 4, 4]], willingToRelocate: false },
     { employeeId: "E1017", name: "Neha Kulkarni", email: "neha.kulkarni@corp.com", location: "Mumbai, Maharashtra", country: "India", gender: "FEMALE", workLocation: "Mumbai, Maharashtra", managerName: "Laxman", designation: "Change Manager", dateOfJoining: "2019-07-23", priorExperienceYears: 7, portfolioId: publicSector.id, costRate: 150, skillSet: [["Change Management", 5, 8], ["Project Management", 5, 7]], willingToRelocate: false },
     { employeeId: "E1018", name: "Arjun Menon", email: "arjun.menon@corp.com", location: "Kochi, Kerala", country: "India", gender: "MALE", workLocation: "Remote / Kochi", managerName: "Venkat", designation: "Python Developer", dateOfJoining: "2024-03-01", priorExperienceYears: 2.5, portfolioId: fin.id, costRate: 130, skillSet: [["Python", 4, 3], ["SQL", 3, 3], ["AWS", 3, 2]], willingToRelocate: true },
+    { employeeId: "E1019", name: "Maya Thompson", email: "maya.thompson@corp.com", location: "Austin, Texas", country: "USA", gender: "FEMALE", workLocation: "Austin, Texas", managerName: "Venkat", designation: "QA Automation Engineer", dateOfJoining: "2021-04-12", priorExperienceYears: 5, portfolioId: fin.id, costRate: 118, skillSet: [["Python", 4, 5], ["SQL", 4, 5]], status: "BENCH_TRUE", benchDays: 2, subCategory: "Recently Released" },
+    { employeeId: "E1020", name: "Samuel Okafor", email: "samuel.okafor@corp.com", location: "London", country: "United Kingdom", gender: "MALE", workLocation: "London", managerName: "Venkat", designation: "Cloud Security Engineer", dateOfJoining: "2019-10-07", priorExperienceYears: 8, portfolioId: fin.id, costRate: 172, currency: "GBP", skillSet: [["AWS", 5, 7], ["Kubernetes", 4, 5], ["DevOps", 5, 7]], status: "BENCH_TRUE", benchDays: 14, subCategory: "Security" },
+    { employeeId: "E1021", name: "Isabella Rossi", email: "isabella.rossi@corp.com", location: "Milan", country: "Italy", gender: "FEMALE", workLocation: "Milan", managerName: "Venkat", designation: "Senior Data Engineer", dateOfJoining: "2018-02-19", priorExperienceYears: 9, portfolioId: fin.id, costRate: 165, currency: "EUR", skillSet: [["Python", 5, 8], ["SQL", 5, 9], ["AWS", 4, 5]], status: "BENCH_TRUE", benchDays: 29, subCategory: "Project Closure" },
+    { employeeId: "E1022", name: "Ethan Williams", email: "ethan.williams@corp.com", location: "New York", country: "USA", gender: "MALE", workLocation: "New York", managerName: "Venkat", designation: "Principal Java Engineer", dateOfJoining: "2016-08-01", priorExperienceYears: 10, portfolioId: fin.id, costRate: 190, skillSet: [["Java", 5, 12], ["SQL", 5, 10]], status: "BENCH_TRUE", benchDays: 45, subCategory: "Long-term Bench" },
+    { employeeId: "E1023", name: "Olivia Martin", email: "olivia.martin@corp.com", location: "Paris", country: "France", gender: "FEMALE", workLocation: "Paris", managerName: "Dhanasekar", designation: "Product Analyst", dateOfJoining: "2022-06-10", priorExperienceYears: 4, portfolioId: health.id, costRate: 142, currency: "EUR", skillSet: [["SQL", 4, 5], ["Project Management", 3, 3]], status: "BENCH_TRUE", benchDays: 60, subCategory: "Long-term Bench" },
+    { employeeId: "E1024", name: "Noah Kim", email: "noah.kim@corp.com", location: "Seoul", country: "South Korea", gender: "MALE", workLocation: "Seoul", managerName: "Adharsh", designation: "Kubernetes Platform Engineer", dateOfJoining: "2020-01-15", priorExperienceYears: 6, portfolioId: health.id, costRate: 158, currency: "KRW", skillSet: [["Kubernetes", 5, 6], ["AWS", 4, 5], ["DevOps", 4, 5]], status: "BENCH_COMMITTED", benchDays: 6, subCategory: "Committed Bench" },
+    { employeeId: "E1025", name: "Sofia Patel", email: "sofia.patel@corp.com", location: "Pune", country: "India", gender: "FEMALE", workLocation: "Pune", managerName: "Dhanasekar", designation: "Salesforce Consultant", dateOfJoining: "2023-03-03", priorExperienceYears: 2, portfolioId: health.id, costRate: 105, skillSet: [["Salesforce", 4, 2], ["Change Management", 3, 2]], status: "BENCH_TRUE", benchDays: 10, subCategory: "Part-time Available" },
+    { employeeId: "E1026", name: "Lucas Silva", email: "lucas.silva@corp.com", location: "Sao Paulo", country: "Brazil", gender: "MALE", workLocation: "Sao Paulo", managerName: "Laxman", designation: "Business Transformation Lead", dateOfJoining: "2017-11-21", priorExperienceYears: 9, portfolioId: publicSector.id, costRate: 155, currency: "BRL", skillSet: [["Change Management", 5, 9], ["Project Management", 5, 8]], status: "BENCH_TRUE", benchDays: 22, subCategory: "Corporate Bench" },
+    { employeeId: "E1027", name: "Amara Johnson", email: "amara.johnson@corp.com", location: "Remote", country: "Canada", gender: "FEMALE", workLocation: "Remote", managerName: "Laxman", designation: "Accessibility Specialist", dateOfJoining: "2024-07-08", priorExperienceYears: 1, portfolioId: publicSector.id, costRate: 98, currency: "CAD", skillSet: [["Project Management", 3, 2], ["Change Management", 3, 1]], status: "BENCH_TRUE", benchDays: 7, subCategory: "Remote Only" },
+    { employeeId: "E1028", name: "Mateo Garcia", email: "mateo.garcia@corp.com", location: "Detroit, Michigan", country: "USA", gender: "MALE", workLocation: "Detroit, Michigan", managerName: "Viswa", designation: "DevOps Engineer", dateOfJoining: "2020-09-14", priorExperienceYears: 6, portfolioId: autoIndustrial.id, costRate: 138, skillSet: [["DevOps", 4, 6], ["Kubernetes", 4, 4], ["AWS", 3, 4]], status: "BENCH_TRUE", benchDays: 18, subCategory: "Standard Bench" },
+    { employeeId: "E1029", name: "Mei Tanaka", email: "mei.tanaka@corp.com", location: "Tokyo", country: "Japan", gender: "FEMALE", workLocation: "Tokyo", managerName: "Viswa", designation: "Industrial Data Scientist", dateOfJoining: "2021-12-01", priorExperienceYears: 4, portfolioId: autoIndustrial.id, costRate: 160, currency: "JPY", skillSet: [["Data Science", 5, 5], ["Python", 5, 5], ["SQL", 4, 4]], status: "BENCH_TRUE", benchDays: 35, subCategory: "Aging Bench" },
+    { employeeId: "E1030", name: "Daniel Cooper", email: "daniel.cooper@corp.com", location: "Remote", country: "Australia", gender: "MALE", workLocation: "Remote", managerName: "Viswa", designation: "Graduate Software Engineer", dateOfJoining: "2025-01-20", priorExperienceYears: 0.5, portfolioId: autoIndustrial.id, costRate: 82, currency: "AUD", skillSet: [["Python", 2, 1], ["SQL", 2, 1]], status: "BENCH_TRUE", benchDays: 3, subCategory: "Graduate" },
+    { employeeId: "E1031", name: "Zara Hussain", email: "zara.hussain@corp.com", location: "Singapore", country: "Singapore", gender: "FEMALE", workLocation: "Singapore", managerName: "Shantanu", designation: "Platform Support Engineer", dateOfJoining: "2022-10-17", priorExperienceYears: 3, portfolioId: broadcom.id, costRate: 148, currency: "SGD", skillSet: [["Kubernetes", 4, 4], ["DevOps", 4, 3], ["Java", 3, 3]], status: "BENCH_TRUE", benchDays: 12, subCategory: "Platform Support" },
+    { employeeId: "E1032", name: "Oliver Chen", email: "oliver.chen@corp.com", location: "Vancouver", country: "Canada", gender: "MALE", workLocation: "Vancouver", managerName: "Shantanu", designation: "Network Automation Engineer", dateOfJoining: "2019-04-09", priorExperienceYears: 7, portfolioId: broadcom.id, costRate: 169, currency: "CAD", skillSet: [["Python", 4, 6], ["Kubernetes", 4, 5], ["AWS", 3, 4]], status: "BENCH_TRUE", benchDays: 31, subCategory: "Aging Bench" },
+    { employeeId: "E1033", name: "Nina Kapoor", email: "nina.kapoor@corp.com", location: "Hyderabad", country: "India", gender: "FEMALE", workLocation: "Hyderabad", managerName: "Vamsi", designation: "AI Research Engineer", dateOfJoining: "2020-05-25", priorExperienceYears: 6, portfolioId: aiMl.id, costRate: 178, skillSet: [["Python", 5, 7], ["Data Science", 5, 6], ["AWS", 4, 4]], status: "BENCH_TRUE", benchDays: 40, subCategory: "AI Research" },
+    { employeeId: "E1034", name: "Gabriel Costa", email: "gabriel.costa@corp.com", location: "Lisbon", country: "Portugal", gender: "MALE", workLocation: "Lisbon", managerName: "Vamsi", designation: "MLOps Engineer", dateOfJoining: "2022-01-11", priorExperienceYears: 3, portfolioId: aiMl.id, costRate: 150, currency: "EUR", skillSet: [["Python", 4, 4], ["Kubernetes", 4, 3], ["DevOps", 4, 3]], status: "BENCH_TRUE", benchDays: 16, subCategory: "MLOps" },
+    { employeeId: "E1035", name: "Leila Haddad", email: "leila.haddad@corp.com", location: "Dubai", country: "UAE", gender: "FEMALE", workLocation: "Dubai", managerName: "Vamsi", designation: "Data Science Intern", dateOfJoining: "2025-06-02", priorExperienceYears: 0, portfolioId: aiMl.id, costRate: 75, currency: "AED", skillSet: [["Python", 2, 1], ["Data Science", 2, 1]], status: "BENCH_TRUE", benchDays: 9, subCategory: "Interns" },
   ];
 
   const resources: Record<string, any> = {};
@@ -205,7 +225,8 @@ async function main() {
         subCategory: def.subCategory,
         dateOfJoining: def.dateOfJoining ? new Date(def.dateOfJoining) : null,
         priorExperienceYears: def.priorExperienceYears ?? 0,
-        status: "AVAILABLE",
+        status: def.status ?? "AVAILABLE",
+        benchSince: def.benchDays !== undefined ? daysAgo(def.benchDays) : null,
         sourceSystem: "SEED",
       },
       update: {
@@ -220,6 +241,10 @@ async function main() {
         priorExperienceYears: def.priorExperienceYears ?? 0,
         portfolioId: def.portfolioId,
         costRate: def.costRate,
+        currency: def.currency ?? "USD",
+        status: def.status ?? "AVAILABLE",
+        benchSince: def.benchDays !== undefined ? daysAgo(def.benchDays) : null,
+        sourceSystem: "SEED",
       },
     });
     for (const [skillName, proficiency, years] of def.skillSet) {

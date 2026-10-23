@@ -17,7 +17,24 @@ every decision.
 - Keep security, privacy, and audit requirements intact unless management explicitly approves
   a policy change with the appropriate HR/security review.
 
-## Approved decisions
+## Latest RMG workflow direction (2026-10-21)
+
+These user-confirmed directions supersede conflicting historical decisions below for the upcoming work. They are not implementation/verification claims. Detailed sequencing and acceptance gates are in `PHASE-2-PLAN.md`, section "RMG workflow automation — current handoff".
+
+| ID | User-confirmed direction | Implementation decisions still open |
+|---|---|---|
+| RMG-01 | Excel resource import must accommodate varying headers and more/fewer/reordered columns; the supplied workbook is a sample, not a mandatory template. Reuse canonical field semantics and existing validation. | Required fields, aliases, explicit mapping UX, identity/duplicates, blank/clear rules and update precedence. |
+| RMG-02 | Import only the first sheet's resource details. The two manually prepared tables on the next sheet are report examples only. Automatically generate those tables from database data and allow downloads. Never import summary values or require users to maintain them. | Inspect and confirm both reports' axes, measures, populations, date basis, totals, format and download layout. |
+| RMG-03 | TA creates demand; RMG does not create it. RMG allocates suitable available resources; TA does not allocate. This supersedes the RMG-create portion of P2-D10. | Admin exceptions, TA edit/cancel and portfolio scope, linking allocations to demand, partial fulfillment and no-resource behavior. |
+| RMG-04 | Excel replaces the user-facing CSV import workflow; no CSV conversion requirement. This supersedes P2-D11's CSV choice, not its validation requirements. | Inventory resource/demand/scheduled entry points, confirm demand workbook needs, and test replacement before retiring existing paths. |
+| RMG-05 | Add filters/grouping to Resources and Bench; preserve accepted MVP behavior, existing UI, and distinct True/Committed Bench concepts. Corporate Bench/Proactive Hire must not silently redefine those concepts. | Specific filter/grouping dimensions and approved category mappings. |
+| RMG-06 | Plan for correct, complete automation and regression-free improvements rather than minimizing scope. | Each increment needs tests, permission checks, data compatibility and user acceptance; no guarantee of zero defects. |
+
+### Bench fields clarification (2026-10-21)
+
+User confirmed that `Allocated <60` describes fewer than 60 days on bench, NOT allocation percentage. Keep Allocation / Bench Status separate from Bench Subcategory: status retains Allocated, True Bench, Committed Bench and other existing lifecycle values; subcategory provides operational labels such as Corporate Bench, Proactive Hire and ML. The Bench UI now displays both fields. User subsequently approved the boundary: fewer than 60 bench days gives `Bench (Allocated <60)`; day 60 onward gives `Corporate Bench`. Resources and Bench now share this display rule for bench/available records, including Committed Bench without changing its lifecycle status. Explicit Proactive Hire/Corporate Bench categories and ML are preserved; missing age is not assumed to be zero. Allocation-driven status writes remain unchanged. No lifecycle status or stored resource data was changed.
+
+## Approved decisions (historical; apply superseding directions above)
 
 | ID | Area | Approved decision | Approved by / date | Rationale |
 |---|---|---|---|---|

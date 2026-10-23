@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../prisma";
-import { deriveAllocationSummary, deriveBenchAgingDays, deriveDefaultSubCategory, deriveProjectedBenchStartDate, deriveTaoExperienceYears, deriveTotalYearsExperience } from "../utils/resourcePresentation";
+import { canViewSensitiveResourceData } from "../middleware/rbac";
+import { deriveAllocationSummary, deriveBenchAgingDays, deriveBenchSubCategory, deriveProjectedBenchStartDate, deriveTaoExperienceYears, deriveTotalYearsExperience } from "../utils/resourcePresentation";
 
 const router = Router();
 
@@ -12,12 +13,27 @@ const router = Router();
  * resource reuse POST /api/allocations (FR-4.4), which remains portfolio-gated.
  */
 router.get("/", async (req, res) => {
-  const { classification } = req.query as Record<string, string | undefined>;
-  const where: any = {
-    status: classification
-      ? { in: classification.split(",") as any }
-      : { in: ["BENCH_COMMITTED", "BENCH_TRUE"] },
-  };
+  const { classification, status, subCategory, managerName, portfolioId, location, country, skill } = req.query as Record<string, string | undefined>;
+  const where: any = classification
+    ? { status: { in: classification.split(",") as any } }
+    : {
+        OR: [
+          { status: { in: ["BENCH_COMMITTED", "BENCH_TRUE", "ON_ML"] } },
+          { allocations: { some: { status: { in: ["ACTIVE", "SCHEDULED"] }, project: { billingDelayed: true } } } },
+          { subCategory: { in: ["Proactive hire", "Proactive Hire"] } },
+        ],
+      };
+  if (status) where.status = { in: status.split(",") };
+  if (subCategory) where.subCategory = { contains: subCategory, mode: "insensitive" };
+  if (managerName) where.managerName = { contains: managerName, mode: "insensitive" };
+  if (portfolioId) where.portfolioId = portfolioId;
+  if (country) where.country = { contains: country, mode: "insensitive" };
+  if (skill) where.skills = { some: { skill: { name: { contains: skill, mode: "insensitive" } } } };
+  if (location) {
+    const locationFilter = { OR: [{ location: { contains: location, mode: "insensitive" } }, { workLocation: { contains: location, mode: "insensitive" } }] };
+    if (where.OR) where.AND = [locationFilter];
+    else Object.assign(where, locationFilter);
+  }
 
   const resources = await prisma.resource.findMany({
     where,
@@ -25,9 +41,8 @@ router.get("/", async (req, res) => {
       portfolio: true,
       skills: { include: { skill: true } },
       allocations: {
-        where: { status: "SCHEDULED" },
-        orderBy: { startDate: "asc" },
-        take: 1,
+        where: { status: { in: ["ACTIVE", "SCHEDULED"] } },
+        orderBy: [{ status: "asc" }, { startDate: "asc" }],
         include: { project: true },
       },
     },
@@ -40,9 +55,11 @@ router.get("/", async (req, res) => {
     taoExperienceYears: deriveTaoExperienceYears(r.dateOfJoining),
     totalYearsExperience: deriveTotalYearsExperience(r.priorExperienceYears, r.dateOfJoining),
     daysOnBench: deriveBenchAgingDays(r, now),
-    nextScheduledAllocation: r.allocations[0] ?? null,
+    nextScheduledAllocation: r.allocations.find((allocation) => allocation.status === "SCHEDULED") ?? null,
     projectedBenchStartDate: deriveProjectedBenchStartDate(r.allocations),
-    subCategory: deriveDefaultSubCategory({ status: r.status, subCategory: r.subCategory }),
+    subCategory: deriveBenchSubCategory(r, now),
+    role: r.designation,
+    costRate: canViewSensitiveResourceData(req.user!, r.portfolioId) ? r.costRate : null,
     ...deriveAllocationSummary(r.allocations),
   }));
 

@@ -43,6 +43,33 @@ export function deriveProjectedBenchStartDate(allocations: Pick<Allocation, "sta
   return active.endDate;
 }
 
+export function deriveBenchSubCategory(resource: {
+  status: string;
+  subCategory: string | null;
+  benchSince?: Date | null;
+  dateOfJoining?: Date | null;
+  allocations?: Array<{ status: string; project?: { billingDelayed?: boolean; isInternalProject?: boolean } | null }>;
+}, now: Date = new Date()) {
+  const project = resource.allocations?.find((allocation) => allocation.status === "ACTIVE")?.project;
+  const category = resource.subCategory?.trim().toLowerCase();
+  if (resource.status === "ON_ML") return "ML";
+  if (resource.status === "TERMINATED") return "Termination";
+  if (project?.billingDelayed) return "Billing Delay";
+  if (category === "proactive hire") return "Proactive Hire";
+  if (category === "corporate bench") return "Corporate Bench";
+  if (["BENCH_TRUE", "BENCH_COMMITTED", "AVAILABLE"].includes(resource.status)) {
+    const days = deriveBenchAgingDays({
+      status: resource.status as Resource["status"],
+      benchSince: resource.benchSince ?? null,
+      dateOfJoining: resource.dateOfJoining ?? null,
+    }, now);
+    if (days !== null) return days >= 60 ? "Corporate Bench" : "Bench (Allocated <60)";
+    return resource.subCategory;
+  }
+  if (project?.isInternalProject) return "Corporate Bench";
+  return deriveDefaultSubCategory({ status: resource.status as Resource["status"], subCategory: resource.subCategory });
+}
+
 export function deriveDefaultSubCategory(resource: Pick<Resource, "status" | "subCategory">, opts?: { isInternalProject?: boolean; billingDelayed?: boolean }) {
   if (resource.status === "ON_ML") return "ML";
   if (resource.status === "BENCH_COMMITTED") return "Committed Bench";

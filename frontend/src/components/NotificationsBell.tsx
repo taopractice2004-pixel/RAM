@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { Notification } from "../types";
@@ -6,6 +7,7 @@ import { Notification } from "../types";
 export default function NotificationsBell() {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const { data: notifications = [] } = useQuery<Notification[]>({
     queryKey: ["notifications"],
@@ -13,7 +15,7 @@ export default function NotificationsBell() {
     refetchInterval: 30000,
   });
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadCount = notifications.filter((n) => !n.read && !n.resolvedAt).length;
 
   async function markAllRead() {
     await api.post("/notifications/read-all");
@@ -37,14 +39,15 @@ export default function NotificationsBell() {
       {open && (
         <div className="absolute right-0 mt-2 w-96 card p-3 z-20 max-h-96 overflow-y-auto">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold">Notifications</h3>
+            <h3 className="text-sm font-semibold">Alerts</h3>
             <button className="text-xs text-brand-600 hover:underline" onClick={markAllRead}>
               Mark all read
             </button>
           </div>
-          {notifications.length === 0 && <p className="text-xs text-slate-400">No notifications yet.</p>}
+          {notifications.length === 0 && <p className="text-xs text-slate-400">No alerts yet.</p>}
+          <button className="mb-2 text-xs text-brand-600 hover:underline" onClick={() => { setOpen(false); navigate("/alerts"); }}>View all alerts</button>
           <ul className="space-y-2">
-            {notifications.map((n) => (
+            {notifications.filter((item) => !item.resolvedAt).slice(0, 5).map((n) => (
               <li key={n.id} className={`text-xs p-2 rounded ${n.read ? "bg-slate-50" : "bg-brand-50"}`}>
                 <div className="font-medium text-slate-700">{n.type.replace(/_/g, " ")}</div>
                 <div className="text-slate-600">{n.message}</div>

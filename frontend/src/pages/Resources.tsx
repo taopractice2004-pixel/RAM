@@ -25,6 +25,7 @@ export default function Resources() {
   const [maxCost, setMaxCost] = useState("");
   const [minCost, setMinCost] = useState("");
   const [portfolioId, setPortfolioId] = useState("");
+  const [subCategory, setSubCategory] = useState("");
   const [relocation, setRelocation] = useState("");
   const [statuses, setStatuses] = useState<string[]>([]);
   const [showRecommendations, setShowRecommendations] = useState(false);
@@ -41,11 +42,9 @@ export default function Resources() {
   });
 
   const { data, isLoading } = useQuery<{ total: number; resources: Resource[] }>({
-    queryKey: ["resources", q, skills, location, manager, certification, designation, country, minExperience, minCost, maxCost, portfolioId, relocation, statuses],
-    queryFn: async () =>
-      (
-        await api.get("/resources", {
-          params: {
+    queryKey: ["resources", q, skills, location, manager, certification, designation, country, minExperience, minCost, maxCost, portfolioId, subCategory, relocation, statuses],
+    queryFn: async () => {
+      const params = {
             q: q || undefined,
             managerName: manager || undefined,
             skills: skills || undefined,
@@ -57,12 +56,20 @@ export default function Resources() {
             minCost: canViewCost ? minCost || undefined : undefined,
             maxCost: canViewCost ? maxCost || undefined : undefined,
             portfolioId: portfolioId || undefined,
+            subCategory: subCategory || undefined,
             willingToRelocate: relocation || undefined,
+            page: 1,
+            pageSize: 100,
             status: statuses.length ? statuses.join(",") : undefined,
-            pageSize: 50,
-          },
-        })
-      ).data,
+      };
+      const firstPage = (await api.get("/resources", { params })).data;
+      const remainingPages = await Promise.all(
+        Array.from({ length: Math.ceil(firstPage.total / firstPage.pageSize) - 1 }, (_, index) =>
+          api.get("/resources", { params: { ...params, page: index + 2 } })
+        )
+      );
+      return { ...firstPage, resources: [...firstPage.resources, ...remainingPages.flatMap((response) => response.data.resources)] };
+    },
   });
 
   const {
@@ -123,6 +130,10 @@ export default function Resources() {
         <div>
           <label className="label">Manager</label>
           <input className="input" value={manager} onChange={(e) => setManager(e.target.value)} placeholder="Venkat" />
+        </div>
+        <div>
+          <label className="label">Subcategory</label>
+          <input className="input" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} placeholder="Corporate Bench" />
         </div>
         <div>
           <label className="label">Designation</label>

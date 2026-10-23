@@ -21,7 +21,7 @@ router.get("/", async (req, res) => {
 });
 
 router.post("/", requireRole("ADMIN"), async (req, res) => {
-  const schema = z.object({ name: z.string().min(1), code: z.string().min(1) });
+  const schema = z.object({ name: z.string().trim().min(1).max(100), code: z.string().trim().min(1).max(20).regex(/^[A-Za-z0-9_-]+$/).transform((code) => code.toUpperCase()) });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 

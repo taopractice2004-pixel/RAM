@@ -37,12 +37,14 @@ export default function Demand() {
   });
   const [csvText, setCsvText] = useState("portfolioId,projectName,projectCode,clientName,roleName,location,requiredSkills,minProficiency,minExperienceYears,requiredCertifications,requiredFte,startDate,endDate,status,confidenceStage,notes\n");
 
-  const canManageDemand = !!user && ["ADMIN", "RMG"].includes(user.role);
+  const canManageDemand = user?.role === "TA";
+  const portfoliosQuery = useQuery<Portfolio[]>({ queryKey: ["portfolios"], queryFn: async () => (await api.get("/portfolios")).data });
+  const availablePortfolios = portfoliosQuery.data ?? portfolios;
 
   const { data: demand = [], isLoading } = useQuery<DemandRequest[]>({
     queryKey: ["demand"],
     queryFn: async () => (await api.get("/demand")).data,
-    enabled: canManageDemand,
+    enabled: !!user,
   });
 
   const createMutation = useMutation({
@@ -101,7 +103,7 @@ export default function Demand() {
   }, [portfolios]);
 
   if (!canManageDemand) {
-    return <div className="text-sm text-slate-500">Only Admin and RMG can manage demand.</div>;
+    return <div className="text-sm text-slate-500">Only Talent Acquisition can create and manage demand.</div>;
   }
 
   return (
@@ -116,7 +118,7 @@ export default function Demand() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <label className="label">Portfolio
             <select className="input" value={form.portfolioId} onChange={(e) => setForm({ ...form, portfolioId: e.target.value })}>
-              {portfolios.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {availablePortfolios.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </label>
           <label className="label">Project name

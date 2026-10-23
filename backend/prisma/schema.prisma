@@ -412,6 +412,7 @@ model Notification {
   relatedEntityType  String?
   relatedEntityId    String?
   read               Boolean          @default(false)
+  resolvedAt         DateTime?
   createdAt          DateTime         @default(now())
 
   user User @relation(fields: [userId], references: [id])

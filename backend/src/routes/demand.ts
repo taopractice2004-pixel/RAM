@@ -77,7 +77,7 @@ router.get("/:id", async (req, res) => {
 
 router.put(
   "/:id/document",
-  requireRole("ADMIN", "RMG"),
+  requireRole("TA"),
   express.raw({ type: "application/octet-stream", limit: MAX_DOCUMENT_SIZE }),
   async (req: Request, res: Response) => {
     const demand = await prisma.demandRequest.findUnique({ where: { id: req.params.id } });
@@ -154,7 +154,7 @@ router.put(
   }
 );
 
-router.get("/:id/document", requireRole("ADMIN", "RMG"), async (req, res) => {
+router.get("/:id/document", requireRole("TA"), async (req, res) => {
   const document = await prisma.demandDocument.findUnique({
     where: { demandRequestId: req.params.id },
     include: { demandRequest: { select: { id: true, portfolioId: true } } },
@@ -180,7 +180,7 @@ router.get("/:id/document", requireRole("ADMIN", "RMG"), async (req, res) => {
   res.send(document.data);
 });
 
-router.post("/validate-csv", requireRole("ADMIN", "RMG"), async (req, res) => {
+router.post("/validate-csv", requireRole("TA"), async (req, res) => {
   const schema = z.object({ csvText: z.string().min(1) });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -243,7 +243,7 @@ router.post("/validate-csv", requireRole("ADMIN", "RMG"), async (req, res) => {
   res.json({ totalRows: rowLines.length, validRows: validRows.length, errors, preview: validRows.slice(0, 10) });
 });
 
-router.post("/import", requireRole("ADMIN", "RMG"), async (req, res) => {
+router.post("/import", requireRole("TA"), async (req, res) => {
   const schema = z.object({ csvText: z.string().min(1) });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -313,7 +313,7 @@ router.post("/import", requireRole("ADMIN", "RMG"), async (req, res) => {
   res.status(201).json({ imported, errors, totalImported: imported.length, totalErrors: errors.length });
 });
 
-router.post("/", requireRole("ADMIN", "RMG"), async (req, res) => {
+router.post("/", requireRole("TA"), async (req, res) => {
   const parsed = demandSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -353,7 +353,7 @@ router.post("/", requireRole("ADMIN", "RMG"), async (req, res) => {
   res.status(201).json(demand);
 });
 
-router.patch("/:id", requireRole("ADMIN", "RMG"), async (req, res) => {
+router.patch("/:id", requireRole("TA"), async (req, res) => {
   const existing = await prisma.demandRequest.findUnique({ where: { id: req.params.id } });
   if (!existing) return res.status(404).json({ error: "Demand request not found" });
 
@@ -399,7 +399,7 @@ router.patch("/:id", requireRole("ADMIN", "RMG"), async (req, res) => {
   res.json(next);
 });
 
-router.post("/:id/cancel", requireRole("ADMIN", "RMG"), async (req, res) => {
+router.post("/:id/cancel", requireRole("TA"), async (req, res) => {
   const existing = await prisma.demandRequest.findUnique({ where: { id: req.params.id } });
   if (!existing) return res.status(404).json({ error: "Demand request not found" });
 

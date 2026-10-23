@@ -23,6 +23,8 @@ import { startScheduledJobs } from "./jobs/scheduler";
 
 const app = express();
 app.use(cors());
+app.use("/api/imports/excel-preview", express.json({ limit: "14mb" }));
+app.use("/api/imports/excel-commit", express.json({ limit: "14mb" }));
 app.use(express.json());
 
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));

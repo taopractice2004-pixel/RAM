@@ -68,6 +68,7 @@ export interface Resource {
   portfolioId: string;
   managerName?: string | null;
   designation?: string | null;
+  role?: string | null;
   subCategory?: string | null;
   dateOfJoining?: string | null;
   priorExperienceYears?: number;
@@ -211,6 +212,7 @@ export interface Notification {
   type: string;
   message: string;
   read: boolean;
+  resolvedAt: string | null;
   createdAt: string;
   relatedEntityType: string | null;
   relatedEntityId: string | null;

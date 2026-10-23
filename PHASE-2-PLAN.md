@@ -5,6 +5,38 @@
 **Product baseline:** Phase 1 core lifecycle MVP, with current implementation status recorded in `README.md` and `TIMESHEET.md`
 **Audience:** Product owner, RMG, Delivery, TA, HR, engineers, QA, and future coding assistants
 
+## RMG workflow automation — current handoff (2026-10-21)
+
+This section records the latest user direction and takes precedence over conflicting older planning text below. This is an approved direction with implementation details still to resolve, not a claim that these changes are implemented or tested. The historical completion statement above does not cover this work.
+
+### Requirements and preservation boundaries
+
+- Reconcile the operational RMG workbook with the requirements PDF; extend the accepted MVP rather than replacing it. Preserve True Bench and Committed Bench as distinct lifecycle concepts. Do not assume Corporate Bench or Proactive Hire is synonymous with either status; confirm the mapping independently.
+- Preserve existing UI/navigation and accepted functionality. Only make targeted UI additions needed for approved features; no incidental redesign, removal, or reinterpretation. User wants a complete, correct plan and improvements without regressions, not reduced scope described as a low-risk compromise. Testing reduces risk but cannot guarantee zero defects.
+- Reference sample: `C:\Users\VishnuVardhanSiluver\Desktop\RAM\Bench sample.xlsx`. This is illustrative, not a fixed template. Real resource workbooks may contain more, fewer, reordered, or differently named fields than the sample/current CSV.
+- Import employee/resource detail from the first sheet. The next sheet contains two manually prepared summary tables: use them as report-layout/business-definition examples ONLY. Never import their values as records or report truth. Generate both reports automatically from existing database data after detail imports, and provide downloads.
+- Excel replaces the user-facing CSV import workflow. Do not require CSV conversion or design a new CSV workflow. Inventory existing resource/demand import entry points and the scheduled import job before retiring CSV; retain validation/audit capabilities rather than deleting them with the parser.
+- TA creates demand, not RMG. RMG allocates available suitable resources against demand; TA must not gain allocation authority. Admin exceptions, TA edit/cancel scope, portfolio scope, partial fulfillment, and no-resource behavior still need decisions.
+- Add useful filters and group-by to Resources and Bench while preserving existing filters and the True/Committed distinction. Exact dimensions and presentation need agreement.
+
+### Ordered implementation plan and acceptance gates
+
+1. **Baseline and reconciliation:** Inspect current source, migrations, uncommitted changes, the PDF, current CSV field semantics, and both sample report tables. Record a field/permission/category matrix distinguishing confirmed requirements from unresolved mappings. Capture accepted MVP/UI behavior and regression cases; do not overwrite unrelated work. Identify the actual two table definitions and formulas before implementing reports.
+2. **Flexible Excel extraction:** Choose a maintained XLSX library after dependency/security review. Detect candidate headers, map known aliases to canonical resource fields, tolerate reordered/extra/optional missing columns, and allow explicit mapping for ambiguous headers. Preview ignored/unmapped columns instead of silently dropping them. Required identifiers/fields still require validation; missing essential data is an actionable error, not permission to invent defaults. Support typed Excel dates, date serials/date systems, numbers, blank cells, duplicate employee IDs, and multiple skills. Define formula/cached-value behavior; never execute workbook macros or external links. Bound file size, decompression, sheet/row/cell counts, and parsing time.
+3. **Preview and safe writes:** Show mapped fields, row errors, warnings, creates/updates, and changes before confirmation. Reuse existing validation, quarantine, permissions and audit logic; enforce scope for every row. Define duplicate/conflict rules, blank-versus-clear semantics, transaction/failure behavior and safe repeat uploads. Never let missing rows imply termination/deletion, or sheet labels silently overwrite allocation-driven lifecycle states. Protect cost and other sensitive fields. Test on a disposable database, not normal `ram_db`.
+4. **Automated reports and downloads:** Agree the two manually built tables' row/column axes, counts/sums, population, date basis, category mapping, totals and blank handling. Calculate them from canonical database records using shared aggregation logic; never depend on uploaded pivot values. Apply the same permissions, filters and grouping to screen and export, prevent sensitive aggregate leakage, and reconcile totals to source records. Confirm download format (Excel is the proposed default), workbook layout and freshness/as-of labeling. Avoid spreadsheet formula injection in exported text.
+5. **TA-to-RMG demand workflow:** Update backend authorization, UI affordances, ownership/audit and any attachment/import paths consistently. Reuse the existing allocation/capacity/conflict checks; link allocations to demand and define remaining quantity/fulfillment rather than merely changing role names. Require decisions for partial/no matches and concurrent allocations before implementing those transitions. Preserve existing demands and authorized historical access through any migration.
+6. **Resources and Bench filtering/grouping:** Agree supported dimensions such as manager, vertical/portfolio, skill, location, category, lifecycle status and ageing. Apply filters before grouping; ensure totals cover all matching records rather than only a displayed page. Keep labels and data scope consistent with reports; do not collapse True and Committed Bench.
+7. **Regression and release acceptance:** Test varying headers, optional/missing fields, malformed uploads, dates, duplicates, repeated uploads, transaction failures, scopes and field privacy. Add report-total/export-parity tests, TA/RMG permission and capacity/concurrency tests, and regression checks for allocation/reallocation, bench transitions, leave, termination, imports and dashboards. Run project checks and role-based UI acceptance; review migration/data compatibility and rollback strategy before release. Track small bugs separately with reproduction and acceptance criteria. Record what actually passes; do not equate builds with acceptance.
+
+### Outstanding decisions (do not guess)
+
+- Exact mapping of workbook categories to operational subcategories versus MVP lifecycle statuses; field aliases, mandatory fields, blank/update rules, and employee identity/conflict handling.
+- Exact definitions of BOTH summary tables, including grouping, counts versus FTE/cost, age/date basis, population and totals; desired download format.
+- Admin demand/allocation exceptions, TA edit/cancel authority and portfolio access, demand-to-allocation link and fulfillment rules, partial availability and no-resource workflow.
+- Resource/Bench filter and grouping priorities; scope of replacing any demand-specific CSV import (the employee workbook is not a demand template).
+- Additional source-file variations improve tests but are not permission to impose a fixed template or import summary tables.
+
 ## 1. Executive summary
 
 Phase 2 should improve staffing visibility and decision support without taking over the
