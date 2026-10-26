@@ -1,4 +1,5 @@
 import { parse } from "csv-parse/sync";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import { writeAudit } from "../utils/audit";
 
@@ -23,7 +24,6 @@ export interface RawImportRow {
   taoExperience?: string;
   skills?: string; // "React:4:3;Node.js:3:2" => name:proficiency:yearsExperience
   certifications?: string; // "PMP:PMI:2022-01-15;AWS SA:AWS:2023-06-01"
-  action?: string; // "TERMINATE" to signal an HRMIS-reported exit, otherwise create/update
 }
 
 export function parseImportCsv(csvText: string): RawImportRow[] {
@@ -42,31 +42,27 @@ const REQUIRED_FIELDS: (keyof RawImportRow)[] = [
   "dateOfJoining",
   "totalYoe",
 ];
-// An HRMIS-reported exit only needs to identify the resource, not its full profile.
-const REQUIRED_FIELDS_FOR_TERMINATE: (keyof RawImportRow)[] = ["employeeId"];
 
-function validateRow(row: RawImportRow): string[] {
+export function validateRow(row: RawImportRow): string[] {
   const errors: string[] = [];
-  const isTerminate = (row.action ?? "").toUpperCase() === "TERMINATE";
-  const requiredFields = isTerminate ? REQUIRED_FIELDS_FOR_TERMINATE : REQUIRED_FIELDS;
-  for (const field of requiredFields) {
+  for (const field of REQUIRED_FIELDS) {
     if (!row[field] || String(row[field]).trim() === "") {
       errors.push(`Missing required field: ${field}`);
     }
   }
-  if (!isTerminate && row.costRate && Number.isNaN(Number(row.costRate))) {
+  if (row.costRate && Number.isNaN(Number(row.costRate))) {
     errors.push(`costRate is not numeric: ${row.costRate}`);
   }
-  if (!isTerminate && row.totalYoe && Number.isNaN(Number(row.totalYoe))) {
+  if (row.totalYoe && Number.isNaN(Number(row.totalYoe))) {
     errors.push(`totalYoe is not numeric: ${row.totalYoe}`);
   }
-  if (!isTerminate && row.taoExperience && Number.isNaN(Number(row.taoExperience))) {
+  if (row.taoExperience && Number.isNaN(Number(row.taoExperience))) {
     errors.push(`taoExperience is not numeric: ${row.taoExperience}`);
   }
-  if (!isTerminate && row.priorExperienceYears && Number.isNaN(Number(row.priorExperienceYears))) {
+  if (row.priorExperienceYears && Number.isNaN(Number(row.priorExperienceYears))) {
     errors.push(`priorExperienceYears is not numeric: ${row.priorExperienceYears}`);
   }
-  if (!isTerminate && row.dateOfJoining) {
+  if (row.dateOfJoining) {
     const doj = new Date(row.dateOfJoining);
     if (Number.isNaN(doj.getTime())) {
       errors.push(`dateOfJoining is invalid: ${row.dateOfJoining}`);
@@ -81,7 +77,7 @@ function validateRow(row: RawImportRow): string[] {
       }
     }
   }
-  if (!isTerminate && row.gender) {
+  if (row.gender) {
     const normalizedGender = row.gender.trim().toUpperCase();
     if (!["FEMALE", "MALE", "OTHER", "UNDISCLOSED"].includes(normalizedGender)) {
       errors.push(`gender is invalid: ${row.gender}`);
@@ -125,13 +121,11 @@ async function upsertCertifications(resourceId: string, certifications: ReturnTy
 }
 
 /**
- * FR-1.4 / FR-1.5 / Workflow 7.1: import new/updated active-resource records from
- * an HRMIS feed or manual input sheet. Valid rows create/update Resource records;
+ * FR-1.5 / Workflow 7.1: bulk import new/updated active-resource records from CSV.
+ * Valid rows create/update Resource records;
  * invalid rows are quarantined (not activated) with the specific error captured.
- * Rows flagged as HRMIS-reported exits are routed to a pending termination request
- * rather than silently deactivated (cross-checked per Section 7.5).
  */
-export async function runImport(rows: RawImportRow[], source: string, actorId?: string | null) {
+export async function runImport(rows: RawImportRow[], source: string, actorId?: string | null, options: { quarantinedRecordId?: string } = {}) {
   const batch = await prisma.importBatch.create({ data: { source, status: "RUNNING" } });
 
   let created = 0;
@@ -142,64 +136,39 @@ export async function runImport(rows: RawImportRow[], source: string, actorId?: 
     const errors = validateRow(row);
 
     if (errors.length > 0) {
-      await prisma.importRecord.create({
-        data: {
-          batchId: batch.id,
-          employeeId: row.employeeId ?? "UNKNOWN",
-          rawData: row as any,
-          status: "QUARANTINED",
-          errors: errors as any,
-        },
-      });
-      quarantined++;
-      continue;
-    }
-
-    if ((row.action ?? "").toUpperCase() === "TERMINATE") {
-      const existingResource = await prisma.resource.findUnique({ where: { employeeId: row.employeeId! } });
-      if (existingResource && existingResource.status !== "TERMINATED") {
-        // Avoid stacking duplicate requests if the HRMIS keeps reporting the same exit
-        // on repeated daily syncs before HR has acted on the first one.
-        const alreadyPending = await prisma.terminationRequest.findFirst({
-          where: { resourceId: existingResource.id, status: "PENDING_HR_APPROVAL" },
+      if (options.quarantinedRecordId) {
+        await prisma.importRecord.update({ where: { id: options.quarantinedRecordId }, data: { rawData: row as any, errors: errors as any } });
+      } else {
+        await prisma.importRecord.create({
+          data: {
+            batchId: batch.id,
+            employeeId: row.employeeId ?? "UNKNOWN",
+            rawData: row as any,
+            status: "QUARANTINED",
+            errors: errors as any,
+          },
         });
-        if (!alreadyPending) {
-          const systemUser = await prisma.user.findFirst({ where: { role: "RMG" } });
-          await prisma.terminationRequest.create({
-            data: {
-              resourceId: existingResource.id,
-              initiatedById: actorId ?? systemUser?.id ?? existingResource.id,
-              reasonCode: "HRMIS_REPORTED_EXIT",
-              reason: "Exit reported by HRMIS during daily sync",
-              status: "PENDING_HR_APPROVAL",
-            },
-          });
-        }
       }
-      await prisma.importRecord.create({
-        data: {
-          batchId: batch.id,
-          employeeId: row.employeeId!,
-          rawData: row as any,
-          status: "UPDATED",
-          resourceId: existingResource?.id,
-        },
-      });
-      updated++;
+      quarantined++;
       continue;
     }
 
     const portfolio = await prisma.portfolio.findUnique({ where: { code: row.portfolioCode! } });
     if (!portfolio) {
-      await prisma.importRecord.create({
-        data: {
-          batchId: batch.id,
-          employeeId: row.employeeId!,
-          rawData: row as any,
-          status: "QUARANTINED",
-          errors: [`Unknown portfolio/department code: ${row.portfolioCode}`] as any,
-        },
-      });
+      const portfolioError = [`Unknown portfolio/department code: ${row.portfolioCode}`];
+      if (options.quarantinedRecordId) {
+        await prisma.importRecord.update({ where: { id: options.quarantinedRecordId }, data: { rawData: row as any, errors: portfolioError as any } });
+      } else {
+        await prisma.importRecord.create({
+          data: {
+            batchId: batch.id,
+            employeeId: row.employeeId!,
+            rawData: row as any,
+            status: "QUARANTINED",
+            errors: portfolioError as any,
+          },
+        });
+      }
       quarantined++;
       continue;
     }
@@ -251,9 +220,13 @@ export async function runImport(rows: RawImportRow[], source: string, actorId?: 
       }
       await upsertCertifications(resource.id, certifications);
 
-      await prisma.importRecord.create({
-        data: { batchId: batch.id, employeeId: row.employeeId!, rawData: row as any, status: "CREATED", resourceId: resource.id },
-      });
+      if (options.quarantinedRecordId) {
+        await prisma.importRecord.update({ where: { id: options.quarantinedRecordId }, data: { employeeId: row.employeeId!, rawData: row as any, status: "CREATED", resourceId: resource.id, errors: Prisma.JsonNull } });
+      } else {
+        await prisma.importRecord.create({
+          data: { batchId: batch.id, employeeId: row.employeeId!, rawData: row as any, status: "CREATED", resourceId: resource.id },
+        });
+      }
       created++;
     } else {
       const resource = await prisma.resource.update({
@@ -287,9 +260,13 @@ export async function runImport(rows: RawImportRow[], source: string, actorId?: 
       }
       await upsertCertifications(resource.id, certifications);
 
-      await prisma.importRecord.create({
-        data: { batchId: batch.id, employeeId: row.employeeId!, rawData: row as any, status: "UPDATED", resourceId: resource.id },
-      });
+      if (options.quarantinedRecordId) {
+        await prisma.importRecord.update({ where: { id: options.quarantinedRecordId }, data: { employeeId: row.employeeId!, rawData: row as any, status: "UPDATED", resourceId: resource.id, errors: Prisma.JsonNull } });
+      } else {
+        await prisma.importRecord.create({
+          data: { batchId: batch.id, employeeId: row.employeeId!, rawData: row as any, status: "UPDATED", resourceId: resource.id },
+        });
+      }
       updated++;
     }
   }

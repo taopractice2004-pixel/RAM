@@ -27,8 +27,8 @@ function AuthorizationsTab() {
   const queryClient = useQueryClient();
   const [userId, setUserId] = useState("");
   const [portfolioId, setPortfolioId] = useState("");
-  const [verticalName, setVerticalName] = useState("");
   const [verticalCode, setVerticalCode] = useState("");
+  const [resolvedPortfolio, setResolvedPortfolio] = useState<Portfolio | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const { data: authorizations = [] } = useQuery<AuthorizationRow[]>({
@@ -38,16 +38,17 @@ function AuthorizationsTab() {
   const { data: users = [] } = useQuery<UserRow[]>({ queryKey: ["users"], queryFn: async () => (await api.get("/users")).data });
   const { data: portfolios = [] } = useQuery<Portfolio[]>({ queryKey: ["portfolios"], queryFn: async () => (await api.get("/portfolios")).data });
 
-  async function createVertical() {
+  const normalizedCode = verticalCode.trim().toUpperCase();
+  const matchingPortfolio = portfolios.find((portfolio) => portfolio.code.toUpperCase() === normalizedCode) ?? null;
+
+  async function resolvePortfolioCode() {
     setError(null);
+    setResolvedPortfolio(null);
     try {
-      await api.post("/portfolios", { name: verticalName.trim(), code: verticalCode.trim() });
-      setVerticalName("");
-      setVerticalCode("");
-      queryClient.invalidateQueries({ queryKey: ["portfolios"] });
-      queryClient.invalidateQueries({ queryKey: ["authorizations"] });
+      const { data } = await api.get("/portfolios/resolve-code", { params: { code: normalizedCode } });
+      setResolvedPortfolio(data);
     } catch (err: any) {
-      setError(err.response?.data?.error || "Failed to create vertical");
+      setError(err.response?.data?.error || "No portfolio matches this code.");
     }
   }
 
@@ -69,8 +70,10 @@ function AuthorizationsTab() {
   return (
     <div className="space-y-4">
       <div className="card p-4 space-y-3">
-        <div><h2 className="text-sm font-semibold text-slate-800">Manage verticals</h2><p className="text-xs text-slate-500">Add a vertical when the organization introduces a new business area.</p></div>
-        <div className="flex flex-wrap items-end gap-3"><label className="label">Vertical name<input className="input" value={verticalName} onChange={(e) => setVerticalName(e.target.value)} placeholder="e.g. Energy" /></label><label className="label">Vertical code<input className="input" value={verticalCode} onChange={(e) => setVerticalCode(e.target.value.toUpperCase())} placeholder="e.g. ENGY" /></label><button className="btn-primary" onClick={createVertical} disabled={!verticalName.trim() || !verticalCode.trim()}>Add vertical</button></div>
+        <div><h2 className="text-sm font-semibold text-slate-800">Manage verticals</h2><p className="text-xs text-slate-500">Validate a code against existing portfolios and confirm its resolved vertical name. Add new verticals through the existing setup process.</p></div>
+        <div className="flex flex-wrap items-end gap-3"><label className="label">Portfolio / vertical code<input className="input" value={verticalCode} onChange={(e) => { setVerticalCode(e.target.value.toUpperCase()); setResolvedPortfolio(null); }} placeholder="e.g. FIN" /></label><button className="btn-primary" onClick={resolvePortfolioCode} disabled={!normalizedCode}>Resolve code</button></div>
+        {matchingPortfolio && <p className="text-xs text-slate-500">Matching existing vertical: {matchingPortfolio.name} ({matchingPortfolio.code}).</p>}
+        {resolvedPortfolio && <div className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-800">Code confirmed: <strong>{resolvedPortfolio.name}</strong> · {resolvedPortfolio.code}</div>}
         <div className="flex flex-wrap gap-2">{portfolios.map((portfolio) => <span key={portfolio.id} className="badge border border-slate-200 bg-slate-50 text-slate-700">{portfolio.name} · {portfolio.code}</span>)}</div>
         {error && <div className="text-sm text-red-600">{error}</div>}
       </div>
@@ -251,6 +254,7 @@ function ImportsTab() {
   const [acceptedRows, setAcceptedRows] = useState<number[]>([]);
   const [editedRows, setEditedRows] = useState<Record<number, Record<string, string>>>({});
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [quarantineDrafts, setQuarantineDrafts] = useState<Record<string, Record<string, string>>>({});
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -259,14 +263,6 @@ function ImportsTab() {
     queryKey: ["quarantine"],
     queryFn: async () => (await api.get("/imports/quarantine/list")).data,
   });
-
-  async function runImport() {
-    const { data } = await api.post("/imports/run");
-    setMessage(`Import complete: created ${data.createdCount}, updated ${data.updatedCount}, quarantined ${data.quarantinedCount}.`);
-    queryClient.invalidateQueries({ queryKey: ["import-batches"] });
-    queryClient.invalidateQueries({ queryKey: ["quarantine"] });
-    queryClient.invalidateQueries({ queryKey: ["resources"] });
-  }
 
   async function uploadCsv() {
     const { data } = await api.post("/imports/upload", { csvText });
@@ -282,22 +278,23 @@ function ImportsTab() {
     queryClient.invalidateQueries({ queryKey: ["quarantine"] });
   }
 
+  async function revalidate(record: ImportRecord) {
+    const { data } = await api.post(`/imports/quarantine/${record.id}/resolve`, quarantineDrafts[record.id] || {});
+    setMessage(data.record?.status === "QUARANTINED" ? `Record ${record.employeeId} still has validation errors.` : `Record ${record.employeeId} released to resources.`);
+    queryClient.invalidateQueries({ queryKey: ["quarantine"] });
+    queryClient.invalidateQueries({ queryKey: ["import-batches"] });
+    queryClient.invalidateQueries({ queryKey: ["resources"] });
+  }
+
+  async function revalidateAll() {
+    const result = await Promise.allSettled(quarantined.map((record) => revalidate(record)));
+    setMessage(`Revalidated ${result.filter((item) => item.status === "fulfilled").length} of ${quarantined.length} quarantined records.`);
+  }
+
   return (
     <div className="space-y-6">
-      <div className="card p-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-700">Daily HRMIS / Manual Sheet Import</h2>
-          <p className="text-xs text-slate-400">
-            Runs automatically every day at 02:00. Trigger manually here to demo without waiting (FR-1.4).
-          </p>
-        </div>
-        <button className="btn-primary" onClick={runImport}>
-          Run Import Now
-        </button>
-      </div>
-
       <div className="card p-4 space-y-2">
-        <h2 className="text-sm font-semibold text-slate-700">Excel resource import wizard</h2>
+        <h2 className="text-sm font-semibold text-slate-700">RMG MIS Import</h2>
         <p className="text-xs text-slate-500">Choose any worksheet, map every resource field, and review changes before importing. Preview does not write data.</p>
         <input id="excel-workbook" className="hidden" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={async (event) => {
           const file = event.target.files?.[0];
@@ -310,7 +307,7 @@ function ImportsTab() {
             let binary = "";
             for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
             const encoded = btoa(binary);
-            const { data } = await api.post("/imports/excel-preview", { workbookBase64: encoded });
+            const { data } = await api.post("/imports/rmg-mis-import/preview", { workbookBase64: encoded });
             setWorkbookBase64(encoded); setHeaders(data.headers); setMapping(data.mapping); setSheetNames(data.sheetNames || []); setSheetName(data.sheetName || data.sheetNames?.[0] || ""); setWizardOpen(true);
           } catch (error: any) { setMessage(error.response?.data?.error || "Could not read workbook."); }
           finally { setLoading(false); }
@@ -324,26 +321,26 @@ function ImportsTab() {
             <p className="rounded bg-slate-50 p-3 text-sm text-slate-600">Map every field you want to import. Employee ID identifies rows; new resources require Name, Email, Location, Cost rate and a valid Portfolio code. Blank cells leave existing values unchanged.</p>
             <div className="grid gap-3 md:grid-cols-3">{[["employeeId", "Employee ID"], ["name", "Name"], ["email", "Email"], ["gender", "Gender"], ["country", "Country"], ["workLocation", "Work location"], ["location", "Location"], ["willingToRelocate", "Willing to relocate"], ["costRate", "Cost rate"], ["currency", "Currency"], ["portfolioCode", "Portfolio code"], ["managerName", "Manager"], ["designation", "Designation"], ["subCategory", "Subcategory"], ["dateOfJoining", "Date of joining"], ["priorExperienceYears", "Prior experience (years)"], ["totalYoe", "Total experience (years)"], ["taoExperience", "TAO experience (years)"], ["skills", "Skills"], ["certifications", "Certifications"]].map(([field, label]) => <label key={field} className="text-sm font-medium">{label}<select className="input mt-1" value={mapping[field] || ""} onChange={(e) => setMapping({ ...mapping, [field]: e.target.value })}><option value="">Not provided</option>{headers.map((header, index) => <option key={`${index}-${header}`} value={header}>{header || `Column ${index + 1}`}</option>)}</select></label>)}</div>
             <button className="btn-primary" disabled={loading || !mapping.employeeId || !mapping.name || Object.values(mapping).filter(Boolean).length !== new Set(Object.values(mapping).filter(Boolean)).size} onClick={async () => {
-              try { setLoading(true); setMessage(null); const { data } = await api.post("/imports/excel-preview", { workbookBase64, mapping, sheetName }); setPreview(data); setEditedRows({}); setAcceptedRows(data.rows.filter((row: any) => ["NEW", "CHANGED"].includes(row.status)).map((row: any) => row.rowNumber)); setWizardOpen(false); }
+              try { setLoading(true); setMessage(null); const { data } = await api.post("/imports/rmg-mis-import/preview", { workbookBase64, mapping, sheetName }); setPreview(data); setEditedRows({}); setAcceptedRows(data.rows.filter((row: any) => ["NEW", "CHANGED"].includes(row.status)).map((row: any) => row.rowNumber)); setWizardOpen(false); }
               catch (error: any) { setMessage(error.response?.data?.error || "Preview failed."); }
               finally { setLoading(false); }
             }}>{loading ? "Reconciling…" : "Review rows"}</button>
           </div>
         </div>}
-        {preview && <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold">Review import · {preview.sheetName}</h3><p className="text-sm text-slate-500">Select rows to import. Select “Edit fields” to correct values before importing.</p><p className="mt-1 text-xs text-slate-500">{preview.rows.filter((row: any) => row.status === "NEW").length} new · {preview.rows.filter((row: any) => row.status === "CHANGED").length} changed · {preview.rows.filter((row: any) => row.status === "UNCHANGED").length} unchanged · {preview.rows.filter((row: any) => ["BLOCKED", "DUPLICATE"].includes(row.status)).length} need attention</p></div><button className="btn-primary" disabled={loading || !acceptedRows.length} onClick={async () => { try { setLoading(true); const { data } = await api.post("/imports/excel-commit", { workbookBase64, sheetName, mapping: preview.mapping, acceptedRowNumbers: acceptedRows, editedRows }); setMessage(`Workbook imported: ${data.createdCount} created, ${data.updatedCount} updated.`); setPreview(null); setAcceptedRows([]); queryClient.invalidateQueries({ queryKey: ["import-batches"] }); queryClient.invalidateQueries({ queryKey: ["resources"] }); } catch (error: any) { setMessage(error.response?.data?.error || "Import failed."); } finally { setLoading(false); } }}>{loading ? "Importing…" : `Import selected (${acceptedRows.length})`}</button></div><div className="flex flex-wrap items-center gap-3 rounded-lg bg-slate-50 px-4 py-3 text-sm"><span><strong>{acceptedRows.length}</strong> selected</span><button className="text-brand-700 hover:underline" onClick={() => setAcceptedRows(preview.rows.filter((row: any) => ["NEW", "CHANGED"].includes(row.status)).map((row: any) => row.rowNumber))}>Select new and changed</button><button className="text-slate-600 hover:underline" onClick={() => setAcceptedRows([])}>Clear selection</button></div><div className="max-h-[36rem] space-y-3 overflow-auto">{preview.rows.map((row: any) => { const selectable = ["NEW", "CHANGED", "UNCHANGED"].includes(row.status); const statusLabel: Record<string, string> = { NEW: "New resource", CHANGED: "Changes found", UNCHANGED: "No changes", DUPLICATE: "Duplicate ID", BLOCKED: "Needs attention" }; const selected = acceptedRows.includes(row.rowNumber); const rowValues = { ...row.values, ...(editedRows[row.rowNumber] || {}) }; const invalid = rowValues.email && !/^\\S+@\\S+\\.\\S+$/.test(rowValues.email); const hasEdits = Object.values(editedRows[row.rowNumber] || {}).some((value) => value.trim() !== ""); return <article key={row.rowNumber} className={`rounded-xl border p-4 ${selected ? "border-brand-300 bg-brand-50/30" : "border-slate-200 bg-white"}`}><div className="flex flex-wrap items-start justify-between gap-3"><div className="flex items-start gap-3">{selectable && <input aria-label={`Import row ${row.rowNumber}`} type="checkbox" checked={selected} onChange={() => setAcceptedRows(selected ? acceptedRows.filter((number) => number !== row.rowNumber) : [...acceptedRows, row.rowNumber])} className="mt-1 h-4 w-4" />}<div><div className="font-semibold">{row.values?.name || "Unnamed resource"}</div><div className="text-sm text-slate-500">ID {rowValues.employeeId || "missing"} · Worksheet row {row.rowNumber}</div></div></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold">{hasEdits ? "Edited · recheck on import" : statusLabel[row.status] || row.status}</span></div><details className="mt-3" open={row.status === "CHANGED" || row.status === "NEW"}><summary className="cursor-pointer text-sm font-medium text-brand-700">Edit fields</summary><div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{Object.entries(preview.mapping).filter(([field]) => field !== "employeeId").map(([field, header]) => { const original = row.values?.[field] ?? ""; const value = editedRows[row.rowNumber]?.[field] ?? original; const change = row.changes?.find((item: any) => item.field === field); return <label key={field} className="text-xs font-medium text-slate-600"><span className="mb-1 block">{field}{change && <span className="ml-2 text-amber-700">Current: {change.current ?? "—"}</span>}</span><input className="input text-sm" value={value} placeholder={`${header} · blank keeps existing`} onChange={(event) => setEditedRows({ ...editedRows, [row.rowNumber]: { ...editedRows[row.rowNumber], [field]: event.target.value } })} />{change && <span className="mt-1 block text-xs text-slate-500">Workbook: {change.proposed}</span>}</label>; })}</div></details>{row.notes?.map((note: string) => <div key={note} className="mt-2 text-sm text-amber-700">{note}</div>)}{row.errors?.map((error: string) => <div key={error} className="mt-2 text-sm text-red-700">{error}</div>)}</article>; })}</div>{preview.warnings.map((warning: string) => <div key={warning} className="text-sm text-slate-500">{warning}</div>)}</div>}
+        {preview && <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold">Review import · {preview.sheetName}</h3><p className="text-sm text-slate-500">Select rows to import. Select “Edit fields” to correct values before importing.</p><p className="mt-1 text-xs text-slate-500">{preview.rows.filter((row: any) => row.status === "NEW").length} new · {preview.rows.filter((row: any) => row.status === "CHANGED").length} changed · {preview.rows.filter((row: any) => row.status === "UNCHANGED").length} unchanged · {preview.rows.filter((row: any) => ["BLOCKED", "DUPLICATE"].includes(row.status)).length} need attention</p></div><button className="btn-primary" disabled={loading || !acceptedRows.length} onClick={async () => { try { setLoading(true); const { data } = await api.post("/imports/rmg-mis-import/commit", { workbookBase64, sheetName, mapping: preview.mapping, acceptedRowNumbers: acceptedRows, editedRows }); setMessage(`Workbook imported: ${data.createdCount} created, ${data.updatedCount} updated.`); setPreview(null); setAcceptedRows([]); queryClient.invalidateQueries({ queryKey: ["import-batches"] }); queryClient.invalidateQueries({ queryKey: ["resources"] }); } catch (error: any) { setMessage(error.response?.data?.error || "Import failed."); } finally { setLoading(false); } }}>{loading ? "Importing…" : `Import selected (${acceptedRows.length})`}</button></div><div className="flex flex-wrap items-center gap-3 rounded-lg bg-slate-50 px-4 py-3 text-sm"><span><strong>{acceptedRows.length}</strong> selected</span><button className="text-brand-700 hover:underline" onClick={() => setAcceptedRows(preview.rows.filter((row: any) => ["NEW", "CHANGED"].includes(row.status)).map((row: any) => row.rowNumber))}>Select new and changed</button><button className="text-slate-600 hover:underline" onClick={() => setAcceptedRows([])}>Clear selection</button></div><div className="max-h-[36rem] space-y-3 overflow-auto">{preview.rows.map((row: any) => { const selectable = ["NEW", "CHANGED", "UNCHANGED"].includes(row.status); const statusLabel: Record<string, string> = { NEW: "New resource", CHANGED: "Changes found", UNCHANGED: "No changes", DUPLICATE: "Duplicate ID", BLOCKED: "Needs attention" }; const selected = acceptedRows.includes(row.rowNumber); const rowValues = { ...row.values, ...(editedRows[row.rowNumber] || {}) }; const invalid = rowValues.email && !/^\\S+@\\S+\\.\\S+$/.test(rowValues.email); const hasEdits = Object.values(editedRows[row.rowNumber] || {}).some((value) => value.trim() !== ""); return <article key={row.rowNumber} className={`rounded-xl border p-4 ${selected ? "border-brand-300 bg-brand-50/30" : "border-slate-200 bg-white"}`}><div className="flex flex-wrap items-start justify-between gap-3"><div className="flex items-start gap-3">{selectable && <input aria-label={`Import row ${row.rowNumber}`} type="checkbox" checked={selected} onChange={() => setAcceptedRows(selected ? acceptedRows.filter((number) => number !== row.rowNumber) : [...acceptedRows, row.rowNumber])} className="mt-1 h-4 w-4" />}<div><div className="font-semibold">{row.values?.name || "Unnamed resource"}</div><div className="text-sm text-slate-500">ID {rowValues.employeeId || "missing"} · Worksheet row {row.rowNumber}</div></div></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold">{hasEdits ? "Edited · recheck on import" : statusLabel[row.status] || row.status}</span></div><details className="mt-3" open={row.status === "CHANGED" || row.status === "NEW"}><summary className="cursor-pointer text-sm font-medium text-brand-700">Edit fields</summary><div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{Object.entries(preview.mapping).filter(([field]) => field !== "employeeId").map(([field, header]) => { const original = row.values?.[field] ?? ""; const value = editedRows[row.rowNumber]?.[field] ?? original; const change = row.changes?.find((item: any) => item.field === field); return <label key={field} className="text-xs font-medium text-slate-600"><span className="mb-1 block">{field}{change && <span className="ml-2 text-amber-700">Current: {change.current ?? "—"}</span>}</span><input className="input text-sm" value={value} placeholder={`${header} · blank keeps existing`} onChange={(event) => setEditedRows({ ...editedRows, [row.rowNumber]: { ...editedRows[row.rowNumber], [field]: event.target.value } })} />{change && <span className="mt-1 block text-xs text-slate-500">Workbook: {change.proposed}</span>}</label>; })}</div></details>{row.notes?.map((note: string) => <div key={note} className="mt-2 text-sm text-amber-700">{note}</div>)}{row.errors?.map((error: string) => <div key={error} className="mt-2 text-sm text-red-700">{error}</div>)}</article>; })}</div>{preview.warnings.map((warning: string) => <div key={warning} className="text-sm text-slate-500">{warning}</div>)}</div>}
       </div>
 
       <div className="card p-4 space-y-2">
-        <h2 className="text-sm font-semibold text-slate-700">Ad-hoc CSV Upload</h2>
+        <h2 className="text-sm font-semibold text-slate-700">Bulk Add Records</h2>
         <textarea
           className="input font-mono text-xs"
           rows={4}
-          placeholder="employeeId,name,email,gender,country,workLocation,location,costRate,currency,portfolioCode,managerName,designation,subCategory,dateOfJoining,totalYoe,taoExperience,skills,certifications,action"
+          placeholder="employeeId,name,email,gender,country,workLocation,location,costRate,currency,portfolioCode,managerName,designation,subCategory,dateOfJoining,totalYoe,taoExperience,skills,certifications"
           value={csvText}
           onChange={(e) => setCsvText(e.target.value)}
         />
         <button className="btn-secondary" onClick={uploadCsv} disabled={!csvText.trim()}>
-          Upload & Import
+          Add Records
         </button>
       </div>
 
@@ -376,12 +373,13 @@ function ImportsTab() {
       </div>
 
       <div className="card overflow-x-auto">
-        <h2 className="text-sm font-semibold text-slate-700 p-4 pb-0">Quarantined Records (FR-1.5)</h2>
+        <div className="flex items-center justify-between p-4 pb-0"><h2 className="text-sm font-semibold text-slate-700">Quarantined Records (FR-1.5)</h2><button className="btn-secondary" onClick={revalidateAll} disabled={!quarantined.length}>Re-validate all</button></div>
         <table className="w-full text-sm mt-2">
           <thead>
             <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
               <th className="py-2 px-4">Employee ID</th>
-              <th className="py-2 px-4">Errors</th>
+              <th className="py-2 px-4">Why quarantined</th>
+              <th className="py-2 px-4">Correct values</th>
               <th className="py-2 px-4"></th>
             </tr>
           </thead>
@@ -389,12 +387,9 @@ function ImportsTab() {
             {quarantined.map((r) => (
               <tr key={r.id} className="border-b border-slate-100 last:border-0">
                 <td className="py-2 px-4">{r.employeeId}</td>
-                <td className="py-2 px-4 text-red-600">{(r.errors || []).join("; ")}</td>
-                <td className="py-2 px-4">
-                  <button className="text-xs text-red-600 hover:underline" onClick={() => discard(r.id)}>
-                    Discard
-                  </button>
-                </td>
+                <td className="py-2 px-4 text-red-600">{Array.isArray(r.errors) ? r.errors.join("; ") : String(r.errors || "Validation failed")}</td>
+                <td className="py-2 px-4"><div className="grid min-w-[32rem] grid-cols-2 gap-2">{Object.entries(r.rawData || {}).filter(([key]) => key !== "action").map(([key, value]) => <label key={key} className="text-xs text-slate-500">{key}<input className="input mt-1" value={quarantineDrafts[r.id]?.[key] ?? value ?? ""} onChange={(event) => setQuarantineDrafts({ ...quarantineDrafts, [r.id]: { ...(quarantineDrafts[r.id] || {}), [key]: event.target.value } })} /></label>)}</div></td>
+                <td className="py-2 px-4"><div className="flex flex-col gap-2"><button className="text-xs text-brand-700 hover:underline" onClick={() => revalidate(r)}>Re-validate & release</button><button className="text-xs text-red-600 hover:underline" onClick={() => discard(r.id)}>Discard</button></div></td>
               </tr>
             ))}
             {quarantined.length === 0 && (

@@ -15,6 +15,13 @@ const COLORS: Record<string, string> = {
   COMPLETED: "bg-slate-200 text-slate-600",
 };
 
+const LABELS: Record<string, string> = {
+  ACTIVE: "Active",
+  SCHEDULED: "Scheduled",
+  CLOSED: "Closed / History",
+  CANCELLED: "Cancelled",
+};
+
 export default function StatusBadge({ status }: { status: string }) {
-  return <span className={`badge ${COLORS[status] || "bg-slate-100 text-slate-700"}`}>{status.replace(/_/g, " ")}</span>;
+  return <span className={`badge ${COLORS[status] || "bg-slate-100 text-slate-700"}`}>{LABELS[status] || status.replace(/_/g, " ")}</span>;
 }

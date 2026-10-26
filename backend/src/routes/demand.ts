@@ -340,6 +340,19 @@ router.post("/", requireRole("TA"), async (req, res) => {
     include: { portfolio: true, owner: true, createdBy: true, updatedBy: true },
   });
 
+  const rmgUsers = await prisma.user.findMany({ where: { role: "RMG", active: true }, select: { id: true } });
+  if (rmgUsers.length) {
+    await prisma.notification.createMany({
+      data: rmgUsers.map(({ id }) => ({
+        userId: id,
+        type: "DEMAND_RAISED",
+        message: `New demand raised: ${demand.roleName} for ${demand.projectName} (${demand.requiredFte} FTE).`,
+        relatedEntityType: "DemandRequest",
+        relatedEntityId: demand.id,
+      })),
+    });
+  }
+
   await writeAudit({
     actorId: req.user!.id,
     action: "CREATE_DEMAND_REQUEST",

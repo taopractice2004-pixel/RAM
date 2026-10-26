@@ -17,14 +17,15 @@ import reportRoutes from "./routes/reports";
 import demandRoutes from "./routes/demand";
 import notificationRoutes from "./routes/notifications";
 import auditRoutes from "./routes/audit";
+import exportRoutes from "./routes/exports";
 
 import { requireAuth } from "./middleware/auth";
 import { startScheduledJobs } from "./jobs/scheduler";
 
 const app = express();
 app.use(cors());
-app.use("/api/imports/excel-preview", express.json({ limit: "14mb" }));
-app.use("/api/imports/excel-commit", express.json({ limit: "14mb" }));
+app.use("/api/imports/rmg-mis-import/preview", express.json({ limit: "14mb" }));
+app.use("/api/imports/rmg-mis-import/commit", express.json({ limit: "14mb" }));
 app.use(express.json());
 
 app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
@@ -44,6 +45,7 @@ app.use("/api/reports", requireAuth, reportRoutes);
 app.use("/api/demand", requireAuth, demandRoutes);
 app.use("/api/notifications", requireAuth, notificationRoutes);
 app.use("/api/audit", requireAuth, auditRoutes);
+app.use("/api/exports", requireAuth, exportRoutes);
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);

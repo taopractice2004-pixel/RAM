@@ -146,6 +146,7 @@ export interface Allocation {
   project?: Project;
   task?: Task | null;
   createdBy?: { id: string; name: string };
+  reallocatedFrom?: { id: string; project?: { name: string } } | null;
 }
 
 export interface TerminationRequest {

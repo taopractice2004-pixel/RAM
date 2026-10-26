@@ -2,7 +2,7 @@
 
 A full-stack implementation of the **Resource Allocation & Management System** requirements
 document (`Resource Allocation and Management.pdf`), covering the **Phase 1 — MVP: Core
-Lifecycle** roadmap milestone (Section 10): daily HRMIS/import & validation, allocation,
+Lifecycle** roadmap milestone (Section 10): resource import & validation, allocation,
 reallocation, bench detection (committed/true), termination/offboarding with active-allocation
 checks, portfolio-scoped role-based access, basic filters, core dashboard, and basic reporting.
 
@@ -93,7 +93,7 @@ backend/
   src/routes/              One file per capability area (resources, allocations, bench, ...)
   src/services/            Business logic: import validation, bench classification, capacity checks
   src/middleware/          JWT auth + role/portfolio RBAC enforcement
-  src/jobs/                node-cron: daily import, allocation transitions, bench aging alerts
+  src/jobs/                node-cron: allocation transitions and bench aging alerts
 
 frontend/
   src/pages/               One page per capability area
@@ -105,7 +105,7 @@ frontend/
 
 | Requirement doc section | Implemented as |
 |---|---|
-| FR-1.1–1.5 (Resource repository & import) | `Resource`/`Skill`/`Certification` models; searchable repository filters; audited profile updates; `POST /imports/run`, `/imports/upload`; quarantine review and audited discard UI (Admin → Import & Quarantine) |
+| FR-1.1–1.5 (Resource repository & import) | `Resource`/`Skill`/`Certification` models; searchable repository filters; audited profile updates; RMG MIS Excel import and Bulk Add Records CSV upload; quarantine review and audited discard UI (Admin → Import & Quarantine) |
 | FR-2.1–2.4 (Allocation) | `POST /allocations`, capacity/conflict check (`services/allocationService.ts`), partial allocation via `allocationPercent` |
 | FR-3.1–3.4 (Reallocation) | `POST /allocations/:id/reallocate`, cross-portfolio authorization check on both losing & receiving portfolio, stakeholder notifications, full history via `reallocatedFromId` chain |
 | FR-4.1–4.4 (Bench management) | Automatic transition on unassignment/allocation end (`services/benchService.ts`), Committed vs. True classification, RMG/TA aging alerts |

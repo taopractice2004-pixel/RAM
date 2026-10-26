@@ -13,7 +13,7 @@ const router = Router();
  * resource reuse POST /api/allocations (FR-4.4), which remains portfolio-gated.
  */
 router.get("/", async (req, res) => {
-  const { classification, status, subCategory, managerName, portfolioId, location, country, skill } = req.query as Record<string, string | undefined>;
+  const { classification, status, subCategory, managerName, portfolioId, location, country, skill, minExperience, minTaoExperience, minAge, maxAge } = req.query as Record<string, string | undefined>;
   const where: any = classification
     ? { status: { in: classification.split(",") as any } }
     : {
@@ -24,11 +24,21 @@ router.get("/", async (req, res) => {
         ],
       };
   if (status) where.status = { in: status.split(",") };
-  if (subCategory) where.subCategory = { contains: subCategory, mode: "insensitive" };
   if (managerName) where.managerName = { contains: managerName, mode: "insensitive" };
   if (portfolioId) where.portfolioId = portfolioId;
   if (country) where.country = { contains: country, mode: "insensitive" };
   if (skill) where.skills = { some: { skill: { name: { contains: skill, mode: "insensitive" } } } };
+  if (minExperience) where.priorExperienceYears = { gte: Number(minExperience) };
+  if (minTaoExperience) {
+    where.dateOfJoining = { lte: new Date(Date.now() - Number(minTaoExperience) * 365.25 * 24 * 60 * 60 * 1000) };
+  }
+  if (minAge || maxAge) {
+    const now = Date.now();
+    where.benchSince = {
+      ...(minAge ? { lte: new Date(now - Number(minAge) * 24 * 60 * 60 * 1000) } : {}),
+      ...(maxAge ? { gte: new Date(now - Number(maxAge) * 24 * 60 * 60 * 1000) } : {}),
+    };
+  }
   if (location) {
     const locationFilter = { OR: [{ location: { contains: location, mode: "insensitive" } }, { workLocation: { contains: location, mode: "insensitive" } }] };
     if (where.OR) where.AND = [locationFilter];
@@ -61,7 +71,7 @@ router.get("/", async (req, res) => {
     role: r.designation,
     costRate: canViewSensitiveResourceData(req.user!, r.portfolioId) ? r.costRate : null,
     ...deriveAllocationSummary(r.allocations),
-  }));
+  })).filter((resource) => !subCategory || resource.subCategory?.toLocaleLowerCase() === subCategory.toLocaleLowerCase());
 
   res.json(enriched);
 });

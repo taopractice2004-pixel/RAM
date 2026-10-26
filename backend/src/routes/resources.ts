@@ -68,8 +68,9 @@ router.get("/", async (req, res) => {
     country,
     gender,
     skills, // comma-separated skill names
-    minExperience,
-    maxCost,
+     minExperience,
+     minTaoExperience,
+     maxCost,
     minCost,
     location,
     status, // comma-separated ResourceStatus values
@@ -102,7 +103,6 @@ router.get("/", async (req, res) => {
   if (q) {
     where.OR = [
       { name: { contains: q, mode: "insensitive" } },
-      { email: { contains: q, mode: "insensitive" } },
       { employeeId: { contains: q, mode: "insensitive" } },
     ];
   }
@@ -120,6 +120,10 @@ router.get("/", async (req, res) => {
       ...(where.skills ?? {}),
       some: { ...(where.skills?.some ?? {}), yearsExperience: { gte: Number(minExperience) } },
     };
+  }
+  if (minTaoExperience) {
+    const minDateOfJoining = new Date(Date.now() - Number(minTaoExperience) * 365.25 * 24 * 60 * 60 * 1000);
+    where.dateOfJoining = { lte: minDateOfJoining };
   }
 
   const take = Math.min(Number(pageSize) || 25, 100);

@@ -113,9 +113,8 @@ it looks like the login button is hanging. Warn your colleague, or open the app
 yourself a minute before they start.
 
 **Background jobs pause while asleep.** `backend/src/jobs/scheduler.ts` registers
-two `node-cron` jobs — a daily import at 02:00 and allocation transitions plus
-bench-aging alerts every 15 minutes. Neither runs while the service is sleeping,
-and the daily import will almost never fire. Date-driven state changes catch up
+ allocation transitions and bench-aging alerts every 15 minutes. These do not run
+ while the service is sleeping. Date-driven state changes catch up
 on the first tick after the service wakes. If a demo needs them on demand, add an
 admin-triggered endpoint that calls `processAllocationTransitions()` directly.
 
@@ -127,15 +126,12 @@ resumes in well under a second. Not noticeable in practice.
 ## What changed for deployment, and why local dev is unaffected
 
 - **`render.yaml`** (new) — blueprint for both services.
-- **`backend/Dockerfile`** — added `COPY data ./data`. The import job reads a CSV
-  from disk (`backend/src/utils/importSheetPath.ts`), which docker-compose
-  supplies via a `./data` volume mount. Render has no persistent volume, so the
-  sheets are baked into the image instead.
+- **`backend/Dockerfile`** — includes demo data files used by local development. Resource imports are uploaded through the Admin interface; no scheduled resource sheet import is required.
 - **`backend/data/`** (new) — copies of the demo CSVs, needed because the Docker
   build context is `./backend` and the originals sit at the repo root.
 
-Local development is unchanged. `docker-compose.yml` still mounts `./data` over
-`/app/data`, which shadows the baked-in copy, and the frontend still builds with
+Local development is unchanged. `docker-compose.yml` mounts `./data` over
+`/app/data` for demo fixtures, and the frontend still builds with
 `VITE_API_URL=/api` behind the nginx proxy:
 
 ```bash

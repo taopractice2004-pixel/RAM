@@ -83,6 +83,7 @@ enum NotificationType {
   IMPORT_QUARANTINE
   BLOCKED_ACTION
   UNMET_DEMAND
+  DEMAND_RAISED
 }
 
 enum Gender {

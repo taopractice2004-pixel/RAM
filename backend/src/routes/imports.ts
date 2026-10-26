@@ -1,31 +1,15 @@
 import { Router } from "express";
-import fs from "fs";
 import { z } from "zod";
+import { parseImportCsv, runImport, RawImportRow } from "../services/importService";
 import { prisma } from "../prisma";
 import { requireRole, isAuthorizedForPortfolio } from "../middleware/rbac";
-import { parseImportCsv, runImport, RawImportRow } from "../services/importService";
 import { writeAudit } from "../utils/audit";
-import { resolveImportSheetPath } from "../utils/importSheetPath";
 import { parseResourceExcelPreview } from "../utils/resourceExcelPreview";
 import { classifyExcelRows } from "../utils/resourceExcelReconcile";
 
 const router = Router();
 
-const DEFAULT_SHEET_PATH = resolveImportSheetPath();
-
-// FR-1.4: trigger the import from the default manual input sheet / HRMIS drop location.
-// (The scheduled daily job calls the same underlying service - see jobs/importJob.ts.)
-router.post("/run", requireRole("ADMIN", "RMG", "HR"), async (req, res) => {
-  if (!fs.existsSync(DEFAULT_SHEET_PATH)) {
-    return res.status(404).json({ error: `Input sheet not found at ${DEFAULT_SHEET_PATH}` });
-  }
-  const csvText = fs.readFileSync(DEFAULT_SHEET_PATH, "utf-8");
-  const rows = parseImportCsv(csvText);
-  const batch = await runImport(rows, "MANUAL_SHEET", req.user!.id);
-  res.status(201).json(batch);
-});
-
-// Ad-hoc upload: paste/upload CSV text directly (useful for demoing without touching server files).
+// Bulk Add Records: upload CSV text directly, without relying on a server-side import sheet.
 router.post("/upload", requireRole("ADMIN", "RMG", "HR"), async (req, res) => {
   const schema = z.object({ csvText: z.string().min(1) });
   const parsed = schema.safeParse(req.body);
@@ -37,11 +21,11 @@ router.post("/upload", requireRole("ADMIN", "RMG", "HR"), async (req, res) => {
   } catch (e: any) {
     return res.status(400).json({ error: `CSV parse error: ${e.message}` });
   }
-  const batch = await runImport(rows, "MANUAL_UPLOAD", req.user!.id);
+  const batch = await runImport(rows, "BULK_ADD_RECORDS", req.user!.id);
   res.status(201).json(batch);
 });
 
-router.post("/excel-preview", requireRole("ADMIN", "RMG", "HR"), async (req, res) => {
+router.post("/rmg-mis-import/preview", requireRole("ADMIN", "RMG", "HR"), async (req, res) => {
   const parsed = z.object({ workbookBase64: z.string().min(1).max(14_000_000), sheetName: z.string().optional(), mapping: z.record(z.string(), z.string()).optional() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
@@ -70,7 +54,7 @@ router.post("/excel-preview", requireRole("ADMIN", "RMG", "HR"), async (req, res
   }
 });
 
-router.post("/excel-commit", requireRole("ADMIN", "RMG"), async (req, res) => {
+router.post("/rmg-mis-import/commit", requireRole("ADMIN", "RMG"), async (req, res) => {
   const parsed = z.object({ workbookBase64: z.string().min(1).max(14_000_000), sheetName: z.string().min(1), mapping: z.record(z.string(), z.string()), acceptedRowNumbers: z.array(z.number().int().positive()).min(1), editedRows: z.record(z.string(), z.record(z.string(), z.string())).optional() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
@@ -175,10 +159,25 @@ router.post("/quarantine/:recordId/resolve", requireRole("ADMIN", "RMG", "HR"), 
   const record = await prisma.importRecord.findUnique({ where: { id: req.params.recordId } });
   if (!record) return res.status(404).json({ error: "Record not found" });
 
+  if (record.status !== "QUARANTINED") return res.status(409).json({ error: "Only quarantined records can be revalidated" });
   const correctedRow = { ...(record.rawData as Record<string, string>), ...req.body } as RawImportRow;
-  const batch = await runImport([correctedRow], "QUARANTINE_RESOLUTION", req.user!.id);
+  const batch = await runImport([correctedRow], "QUARANTINE_RESOLUTION", req.user!.id, { quarantinedRecordId: record.id });
+  const updated = await prisma.importRecord.findUnique({ where: { id: record.id } });
+  await writeAudit({ actorId: req.user!.id, action: updated?.status === "QUARANTINED" ? "REVALIDATE_QUARANTINED_IMPORT_RECORD" : "RELEASE_QUARANTINED_IMPORT_RECORD", entityType: "ImportRecord", entityId: record.id, before: record, after: updated });
+  res.json({ batch, record: updated });
+});
 
-  res.json({ batch });
+router.post("/upload", requireRole("ADMIN", "RMG", "HR"), async (req, res) => {
+  const schema = z.object({ csvText: z.string().min(1) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  try {
+    const rows: RawImportRow[] = parseImportCsv(parsed.data.csvText);
+    const batch = await runImport(rows, "BULK_ADD_RECORDS", req.user!.id);
+    res.status(201).json(batch);
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : "CSV import failed" });
+  }
 });
 
 export default router;

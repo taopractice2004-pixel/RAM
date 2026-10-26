@@ -15,6 +15,8 @@ export default function Bench() {
   const [location, setLocation] = useState("");
   const [country, setCountry] = useState("");
   const [skill, setSkill] = useState("");
+  const [minExperience, setMinExperience] = useState("");
+  const [minTaoExperience, setMinTaoExperience] = useState("");
   const [minAge, setMinAge] = useState("");
   const [maxAge, setMaxAge] = useState("");
   const { user } = useAuth();
@@ -24,8 +26,13 @@ export default function Bench() {
     queryKey: ["portfolios"],
     queryFn: async () => (await api.get("/portfolios")).data,
   });
+  const { data: subcategoryResources = [] } = useQuery<Resource[]>({
+    queryKey: ["bench-subcategories"],
+    queryFn: async () => (await api.get("/bench")).data,
+  });
+  const subcategories = Array.from(new Set(subcategoryResources.map((resource) => resource.subCategory).filter((value): value is string => Boolean(value)))).sort((a, b) => a.localeCompare(b));
   const { data: resources = [], isLoading } = useQuery<Resource[]>({
-    queryKey: ["bench", classification, status, subCategory, manager, portfolio, location, country, skill, minAge, maxAge],
+    queryKey: ["bench", classification, status, subCategory, manager, portfolio, location, country, skill, minExperience, minTaoExperience, minAge, maxAge],
     queryFn: async () => (await api.get("/bench", { params: {
       classification: classification || undefined,
       status: status || undefined,
@@ -34,8 +41,12 @@ export default function Bench() {
       portfolioId: portfolio || undefined,
       location: location || undefined,
       country: country || undefined,
-      skill: skill || undefined,
-    } })).data,
+       skill: skill || undefined,
+       minExperience: minExperience || undefined,
+       minTaoExperience: minTaoExperience || undefined,
+       minAge: minAge || undefined,
+       maxAge: maxAge || undefined,
+     } })).data,
   });
   return (
     <div className="space-y-6">
@@ -54,7 +65,7 @@ export default function Bench() {
             className={`badge border ${classification === c ? "bg-brand-600 text-white border-brand-600" : "bg-white text-slate-600 border-slate-300"}`}
             onClick={() => setClassification(c)}
           >
-            {c === "" ? "All Bench" : c.replace(/_/g, " ")}
+            {c === "" ? "All Bench" : c === "BENCH_COMMITTED" ? "Committed Bench" : "True Bench"}
           </button>
         ))}
       </div>
@@ -62,8 +73,12 @@ export default function Bench() {
       <div className="card p-4 grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <div><label className="label">Skill</label><input className="input" value={skill} onChange={(e) => setSkill(e.target.value)} placeholder="Skill name" /></div>
         <div><label className="label">Country</label><input className="input" value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Country" /></div>
+        <div><label className="label">Minimum prior experience (years)</label><input className="input" type="number" min="0" step="0.5" value={minExperience} onChange={(e) => setMinExperience(e.target.value)} /></div>
+        <div><label className="label">Minimum TAO experience (years)</label><input className="input" type="number" min="0" step="0.5" value={minTaoExperience} onChange={(e) => setMinTaoExperience(e.target.value)} /></div>
+        <div><label className="label">Minimum bench ageing (days)</label><input className="input" type="number" min="0" value={minAge} onChange={(e) => setMinAge(e.target.value)} /></div>
+        <div><label className="label">Maximum bench ageing (days)</label><input className="input" type="number" min="0" value={maxAge} onChange={(e) => setMaxAge(e.target.value)} /></div>
         <div><label className="label">Lifecycle status</label><select className="input" value={status} onChange={(e) => setStatus(e.target.value)}><option value="">Any status</option>{["BENCH_COMMITTED", "BENCH_TRUE", "AVAILABLE", "ALLOCATED", "ON_ML"].map((value) => <option key={value} value={value}>{{ BENCH_COMMITTED: "Committed Bench", BENCH_TRUE: "True Bench", AVAILABLE: "Available", ALLOCATED: "Allocated", ON_ML: "On maternity leave" }[value]}</option>)}</select></div>
-        <div><label className="label">Subcategory</label><input className="input" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} placeholder="Corporate Bench" /></div>
+        <div><label className="label">Subcategory</label><select className="input" value={subCategory} onChange={(e) => setSubCategory(e.target.value)}><option value="">All subcategories</option>{subcategories.map((value) => <option key={value} value={value}>{value}</option>)}</select></div>
         <div><label className="label">Manager</label><input className="input" value={manager} onChange={(e) => setManager(e.target.value)} placeholder="Manager" /></div>
         <div><label className="label">Portfolio / Vertical</label><select className="input" value={portfolio} onChange={(e) => setPortfolio(e.target.value)}><option value="">All authorized</option>{portfolios.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
         <div><label className="label">Location</label><input className="input" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Location" /></div>

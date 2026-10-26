@@ -11,7 +11,7 @@ import { deriveDefaultSubCategory } from "../utils/resourcePresentation";
 const router = Router();
 
 router.get("/", async (req, res) => {
-  const { resourceId, projectId, resource, project, status, startDate, endDate } = req.query as Record<string, string | undefined>;
+  const { resourceId, projectId, resource, project, status, reallocated, startDate, endDate } = req.query as Record<string, string | undefined>;
   const where: any = { ...portfolioReadWhere(req, "portfolioId") };
   if (resourceId) where.resourceId = resourceId;
   if (projectId) where.projectId = projectId;
@@ -33,10 +33,12 @@ router.get("/", async (req, res) => {
   } else {
     where.status = { in: ["ACTIVE", "SCHEDULED"] };
   }
+  if (reallocated === "true") where.reallocatedFromId = { not: null };
+  if (reallocated === "false") where.reallocatedFromId = null;
 
   const allocations = await prisma.allocation.findMany({
     where,
-    include: { resource: true, project: true, task: true, createdBy: { select: { id: true, name: true } } },
+    include: { resource: true, project: true, task: true, createdBy: { select: { id: true, name: true } }, reallocatedFrom: { select: { id: true, project: { select: { name: true } } } } },
     orderBy: { startDate: "desc" },
   });
   res.json(allocations);

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
@@ -22,12 +22,17 @@ export default function Resources() {
   const [designation, setDesignation] = useState("");
   const [country, setCountry] = useState("");
   const [minExperience, setMinExperience] = useState("");
+  const [minTaoExperience, setMinTaoExperience] = useState("");
   const [maxCost, setMaxCost] = useState("");
   const [minCost, setMinCost] = useState("");
   const [portfolioId, setPortfolioId] = useState("");
   const [subCategory, setSubCategory] = useState("");
   const [relocation, setRelocation] = useState("");
   const [statuses, setStatuses] = useState<string[]>([]);
+  const [exportFields, setExportFields] = useState<string[]>([]);
+  const [exportFormat, setExportFormat] = useState<"csv" | "xlsx">("xlsx");
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
   const [showRecommendations, setShowRecommendations] = useState(false);
   const [minProficiency, setMinProficiency] = useState("");
   const [requiredCertifications, setRequiredCertifications] = useState("");
@@ -36,13 +41,18 @@ export default function Resources() {
   const [requiredEndDate, setRequiredEndDate] = useState("");
   const hasAvailabilityCriteria = Boolean(requiredFte && requiredStartDate && requiredEndDate);
 
+  const { data: exportableFields = [] } = useQuery<{ key: string; label: string }[]>({
+    queryKey: ["resource-export-fields"],
+    queryFn: async () => (await api.get("/exports/resources/fields")).data,
+  });
+
   const { data: portfolios = [] } = useQuery<Portfolio[]>({
     queryKey: ["portfolios"],
     queryFn: async () => (await api.get("/portfolios")).data,
   });
 
   const { data, isLoading } = useQuery<{ total: number; resources: Resource[] }>({
-    queryKey: ["resources", q, skills, location, manager, certification, designation, country, minExperience, minCost, maxCost, portfolioId, subCategory, relocation, statuses],
+    queryKey: ["resources", q, skills, location, manager, certification, designation, country, minExperience, minTaoExperience, minCost, maxCost, portfolioId, subCategory, relocation, statuses],
     queryFn: async () => {
       const params = {
             q: q || undefined,
@@ -53,6 +63,7 @@ export default function Resources() {
             country: country || undefined,
             location: location || undefined,
             minExperience: minExperience || undefined,
+            minTaoExperience: minTaoExperience || undefined,
             minCost: canViewCost ? minCost || undefined : undefined,
             maxCost: canViewCost ? maxCost || undefined : undefined,
             portfolioId: portfolioId || undefined,
@@ -71,6 +82,11 @@ export default function Resources() {
       return { ...firstPage, resources: [...firstPage.resources, ...remainingPages.flatMap((response) => response.data.resources)] };
     },
   });
+
+  const subCategories = useMemo(() => {
+    const values = (data?.resources ?? []).map((resource) => resource.subCategory).filter((value): value is string => Boolean(value));
+    return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
+  }, [data?.resources]);
 
   const {
     data: recommendations,
@@ -103,6 +119,38 @@ export default function Resources() {
     enabled: showRecommendations && skills.split(",").some((skill) => skill.trim().length > 0),
   });
 
+  async function downloadExport() {
+    if (!exportFields.length) return;
+    setExporting(true);
+    setExportError("");
+    try {
+      const response = await api.post("/exports/resources", {
+        fields: exportFields,
+        format: exportFormat,
+        filters: {
+          q: q || undefined, skills: skills || undefined, location: location || undefined,
+          managerName: manager || undefined, designation: designation || undefined, country: country || undefined,
+          status: statuses.length ? statuses : undefined, portfolioId: portfolioId || undefined,
+          subCategory: subCategory || undefined, certification: certification || undefined,
+          minExperience: minExperience || undefined, minTaoExperience: minTaoExperience || undefined,
+          minCost: canViewCost ? minCost || undefined : undefined, maxCost: canViewCost ? maxCost || undefined : undefined,
+        },
+      }, { responseType: "blob" });
+      const blobUrl = window.URL.createObjectURL(response.data);
+      const anchor = document.createElement("a");
+      anchor.href = blobUrl;
+      anchor.download = `resources_export.${exportFormat === "xlsx" ? "xlsx" : "csv"}`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch {
+      setExportError("Export failed. Check selected columns and filters, then try again.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   function toggleStatus(s: string) {
     setStatuses((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
   }
@@ -116,7 +164,7 @@ export default function Resources() {
 
       <div className="card p-4 grid grid-cols-1 md:grid-cols-4 xl:grid-cols-6 gap-3">
         <div>
-          <label className="label">Search (name/email/ID)</label>
+          <label className="label">Search (name/ID)</label>
           <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Alicia Chen" />
         </div>
         <div>
@@ -133,7 +181,10 @@ export default function Resources() {
         </div>
         <div>
           <label className="label">Subcategory</label>
-          <input className="input" value={subCategory} onChange={(e) => setSubCategory(e.target.value)} placeholder="Corporate Bench" />
+          <select className="input" value={subCategory} onChange={(e) => setSubCategory(e.target.value)}>
+            <option value="">All subcategories</option>
+            {subCategories.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
         </div>
         <div>
           <label className="label">Designation</label>
@@ -150,6 +201,10 @@ export default function Resources() {
         <div>
           <label className="label">Minimum skill experience (years)</label>
           <input className="input" type="number" min="0" step="0.5" value={minExperience} onChange={(e) => setMinExperience(e.target.value)} />
+        </div>
+        <div>
+          <label className="label">Minimum TAO experience (years)</label>
+          <input className="input" type="number" min="0" step="0.5" value={minTaoExperience} onChange={(e) => setMinTaoExperience(e.target.value)} />
         </div>
         <div>
           <label className="label">Willing to relocate</label>
@@ -276,6 +331,12 @@ export default function Resources() {
           </div>
         </section>
       )}
+
+      <section className="card space-y-4 p-4">
+        <div><h2 className="font-semibold text-slate-800">Custom export</h2><p className="text-sm text-slate-500">Choose columns and export the resources matching the filters above.</p></div>
+        <div className="flex flex-wrap gap-3">{exportableFields.map((field) => <label key={field.key} className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={exportFields.includes(field.key)} onChange={(event) => setExportFields((current) => event.target.checked ? [...current, field.key] : current.filter((key) => key !== field.key))} />{field.label}</label>)}</div>
+        <div className="flex flex-wrap items-end gap-3"><label className="label">File format<select className="input" value={exportFormat} onChange={(event) => setExportFormat(event.target.value as "csv" | "xlsx")}><option value="xlsx">Excel (.xlsx)</option><option value="csv">CSV (.csv)</option></select></label><button className="btn-primary" disabled={exporting || exportFields.length === 0} onClick={downloadExport}>{exporting ? "Preparing export…" : "Download export"}</button>{exportError && <span role="alert" className="text-sm text-red-600">{exportError}</span>}</div>
+      </section>
 
       <div className="card overflow-x-auto">
         <table className="w-full text-sm">
