@@ -1,4 +1,4 @@
-export const SAFE_EXCEL_FIELDS = ["name", "email", "gender", "country", "workLocation", "location", "willingToRelocate", "costRate", "currency", "portfolioCode", "managerName", "designation", "subCategory", "dateOfJoining", "priorExperienceYears", "totalYoe", "taoExperience", "skills", "certifications"] as const;
+export const SAFE_EXCEL_FIELDS = ["name", "gender", "country", "workLocation", "location", "willingToRelocate", "costRate", "currency", "portfolioCode", "managerName", "designation", "subCategory", "dateOfJoining", "priorExperienceYears", "totalYoe", "taoExperience", "skills", "certifications"] as const;
 export type SafeExcelField = typeof SAFE_EXCEL_FIELDS[number];
 export type ReconcileStatus = "NEW" | "CHANGED" | "UNCHANGED" | "DUPLICATE" | "BLOCKED";
 function normalizeValue(field: SafeExcelField, value: unknown) {
@@ -22,7 +22,16 @@ export function classifyExcelRows(rows: Array<{ rowNumber: number; values: Parti
     const notes = [...row.errors];
     if (id && (counts.get(id) || 0) > 1) { status = "DUPLICATE"; notes.push("Employee ID occurs more than once in this workbook"); }
     else if (!id || row.errors.length) status = "BLOCKED";
-    else if (!current) { status = "NEW"; notes.push("Ready to create resource"); }
+    else if (!current) {
+      const missing = (["name", "location", "costRate", "portfolioCode"] as const).filter((field) => !row.values[field]);
+      if (missing.length) {
+        status = "BLOCKED";
+        notes.push(...missing.map((field) => `Missing ${field}`));
+      } else {
+        status = "NEW";
+        notes.push("Ready to create resource");
+      }
+    }
     else if (!authorized(current)) status = "BLOCKED";
     else {
       changes = SAFE_EXCEL_FIELDS.flatMap((field) => {

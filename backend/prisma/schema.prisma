@@ -38,6 +38,10 @@ enum ImportRecordStatus {
   CREATED
   UPDATED
   QUARANTINED
+  PENDING
+  SKIPPED
+  FAILED
+  DISCARDED
 }
 
 enum ImportBatchStatus {
@@ -156,7 +160,7 @@ model Resource {
   id               String         @id @default(uuid())
   employeeId       String         @unique
   name             String
-  email            String
+  email            String?
   gender           Gender           @default(UNDISCLOSED)
   country          String?
   workLocation     String?
@@ -386,6 +390,10 @@ model ImportBatch {
   startedAt        DateTime          @default(now())
   completedAt      DateTime?
 
+  idempotencyKey String? @unique
+  digest String?
+  provenance Json?
+  actorId String?
   records ImportRecord[]
 }
 
@@ -394,6 +402,14 @@ model ImportRecord {
   batchId    String
   employeeId String
   rawData    Json
+  originalSource Json?
+  originalMapped Json?
+  version Int @default(0)
+  validation Json?
+  review Json?
+  rowNumber Int?
+  updatedBy String?
+  updatedAt DateTime?
   status     ImportRecordStatus
   errors     Json?
   resourceId String?
@@ -401,6 +417,9 @@ model ImportRecord {
 
   batch    ImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
   resource Resource?   @relation(fields: [resourceId], references: [id])
+
+  @@index([batchId, status, createdAt])
+  @@index([employeeId])
 }
 
 // ---------- Notifications & Audit ----------

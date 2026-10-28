@@ -58,7 +58,7 @@ export default function Alerts() {
     if (item.relatedEntityType === "TerminationRequest" || item.relatedEntityType === "MaternityLeaveRequest") navigate("/approvals");
     else if (item.relatedEntityType === "Resource" && item.relatedEntityId) navigate(`/resources/${item.relatedEntityId}`);
     else if (item.relatedEntityType === "DemandRequest") navigate("/demand");
-    else if (item.relatedEntityType === "ImportBatch") navigate("/admin");
+    else if (item.relatedEntityType === "ImportBatch") navigate(`/admin?tab=imports&batch=${encodeURIComponent(item.relatedEntityId || "")}`);
     setSelected(null);
   }
 

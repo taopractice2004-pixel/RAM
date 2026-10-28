@@ -3,6 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { ImportBatch, ImportRecord, Portfolio } from "../types";
+import ExcelImportWizard from "../components/ExcelImportWizard";
+import QuarantineWorkspace from "../components/QuarantineWorkspace";
 
 type Tab = "authorizations" | "users" | "imports" | "audit";
 
@@ -245,99 +247,37 @@ function UsersTab() {
 function ImportsTab() {
   const queryClient = useQueryClient();
   const [csvText, setCsvText] = useState("");
-  const [workbookBase64, setWorkbookBase64] = useState("");
-  const [preview, setPreview] = useState<any>(null);
-  const [headers, setHeaders] = useState<string[]>([]);
-  const [mapping, setMapping] = useState<Record<string, string>>({});
-  const [sheetNames, setSheetNames] = useState<string[]>([]);
-  const [sheetName, setSheetName] = useState("");
-  const [acceptedRows, setAcceptedRows] = useState<number[]>([]);
-  const [editedRows, setEditedRows] = useState<Record<number, Record<string, string>>>({});
-  const [wizardOpen, setWizardOpen] = useState(false);
-  const [quarantineDrafts, setQuarantineDrafts] = useState<Record<string, Record<string, string>>>({});
-  const [loading, setLoading] = useState(false);
+  const [csvKey, setCsvKey] = useState(() => crypto.randomUUID());
   const [message, setMessage] = useState<string | null>(null);
-
   const { data: batches = [] } = useQuery<ImportBatch[]>({ queryKey: ["import-batches"], queryFn: async () => (await api.get("/imports")).data });
-  const { data: quarantined = [] } = useQuery<ImportRecord[]>({
-    queryKey: ["quarantine"],
-    queryFn: async () => (await api.get("/imports/quarantine/list")).data,
-  });
 
   async function uploadCsv() {
-    const { data } = await api.post("/imports/upload", { csvText });
-    setMessage(`Upload complete: created ${data.createdCount}, updated ${data.updatedCount}, quarantined ${data.quarantinedCount}.`);
-    setCsvText("");
+    const { data } = await api.post("/imports/upload", { csvText, idempotencyKey: csvKey });
+    setMessage(`Batch ${data.id}: created ${data.createdCount}, updated ${data.updatedCount}, quarantined ${data.quarantinedCount}, failed ${data.totals?.FAILED ?? 0}, pending ${data.totals?.PENDING ?? 0}.${data.notificationPending ? " Notification delivery pending; retry unchanged input." : ""}`);
+    if (!data.notificationPending && !data.totals?.PENDING && !data.totals?.FAILED) { setCsvText(""); setCsvKey(crypto.randomUUID()); }
     queryClient.invalidateQueries({ queryKey: ["import-batches"] });
     queryClient.invalidateQueries({ queryKey: ["quarantine"] });
     queryClient.invalidateQueries({ queryKey: ["resources"] });
   }
 
-  async function discard(recordId: string) {
-    await api.post(`/imports/quarantine/${recordId}/discard`);
-    queryClient.invalidateQueries({ queryKey: ["quarantine"] });
-  }
-
-  async function revalidate(record: ImportRecord) {
-    const { data } = await api.post(`/imports/quarantine/${record.id}/resolve`, quarantineDrafts[record.id] || {});
-    setMessage(data.record?.status === "QUARANTINED" ? `Record ${record.employeeId} still has validation errors.` : `Record ${record.employeeId} released to resources.`);
-    queryClient.invalidateQueries({ queryKey: ["quarantine"] });
-    queryClient.invalidateQueries({ queryKey: ["import-batches"] });
-    queryClient.invalidateQueries({ queryKey: ["resources"] });
-  }
-
-  async function revalidateAll() {
-    const result = await Promise.allSettled(quarantined.map((record) => revalidate(record)));
-    setMessage(`Revalidated ${result.filter((item) => item.status === "fulfilled").length} of ${quarantined.length} quarantined records.`);
-  }
 
   return (
     <div className="space-y-6">
-      <div className="card p-4 space-y-2">
-        <h2 className="text-sm font-semibold text-slate-700">RMG MIS Import</h2>
-        <p className="text-xs text-slate-500">Choose any worksheet, map every resource field, and review changes before importing. Preview does not write data.</p>
-        <input id="excel-workbook" className="hidden" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={async (event) => {
-          const file = event.target.files?.[0];
-          setWorkbookBase64(""); setPreview(null); setHeaders([]); setMapping({}); setEditedRows({}); setAcceptedRows([]); setWizardOpen(false); setMessage(null);
-          if (!file) return;
-          if (!file.name.toLowerCase().endsWith(".xlsx") || file.size > 10 * 1024 * 1024) { setMessage("Select an .xlsx workbook no larger than 10 MB."); event.target.value = ""; return; }
-          try {
-            setLoading(true);
-            const bytes = new Uint8Array(await file.arrayBuffer());
-            let binary = "";
-            for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-            const encoded = btoa(binary);
-            const { data } = await api.post("/imports/rmg-mis-import/preview", { workbookBase64: encoded });
-            setWorkbookBase64(encoded); setHeaders(data.headers); setMapping(data.mapping); setSheetNames(data.sheetNames || []); setSheetName(data.sheetName || data.sheetNames?.[0] || ""); setWizardOpen(true);
-          } catch (error: any) { setMessage(error.response?.data?.error || "Could not read workbook."); }
-          finally { setLoading(false); }
-        }} />
-        <button className="btn-secondary" onClick={() => document.getElementById("excel-workbook")?.click()} disabled={loading}>{loading ? "Reading workbook…" : "Select XLSX workbook"}</button>
-        <p className="text-xs text-slate-600">Map all available fields, including cost, portfolio, skills and certifications. Blank cells leave existing values unchanged; employee ID, name and email are required to create a resource. Portfolio code must match an existing portfolio.</p>
-        {wizardOpen && <div role="dialog" aria-modal="true" aria-label="Map Excel columns" className="fixed inset-0 z-50 overflow-auto bg-black/40 p-4">
-          <div className="mx-auto mt-8 max-w-5xl space-y-5 rounded-xl bg-white p-6 shadow-xl">
-            <div className="flex items-center justify-between"><div><h3 className="text-lg font-semibold">Set up your import</h3><p className="text-sm text-slate-500">Select the worksheet, then map each resource field to a workbook column. Unused columns are safe to leave unmapped.</p></div><button className="btn-secondary" onClick={() => setWizardOpen(false)}>Close</button></div>
-            <label className="block text-sm font-medium">Worksheet<select className="input mt-1" value={sheetName} onChange={(e) => setSheetName(e.target.value)}>{sheetNames.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
-            <p className="rounded bg-slate-50 p-3 text-sm text-slate-600">Map every field you want to import. Employee ID identifies rows; new resources require Name, Email, Location, Cost rate and a valid Portfolio code. Blank cells leave existing values unchanged.</p>
-            <div className="grid gap-3 md:grid-cols-3">{[["employeeId", "Employee ID"], ["name", "Name"], ["email", "Email"], ["gender", "Gender"], ["country", "Country"], ["workLocation", "Work location"], ["location", "Location"], ["willingToRelocate", "Willing to relocate"], ["costRate", "Cost rate"], ["currency", "Currency"], ["portfolioCode", "Portfolio code"], ["managerName", "Manager"], ["designation", "Designation"], ["subCategory", "Subcategory"], ["dateOfJoining", "Date of joining"], ["priorExperienceYears", "Prior experience (years)"], ["totalYoe", "Total experience (years)"], ["taoExperience", "TAO experience (years)"], ["skills", "Skills"], ["certifications", "Certifications"]].map(([field, label]) => <label key={field} className="text-sm font-medium">{label}<select className="input mt-1" value={mapping[field] || ""} onChange={(e) => setMapping({ ...mapping, [field]: e.target.value })}><option value="">Not provided</option>{headers.map((header, index) => <option key={`${index}-${header}`} value={header}>{header || `Column ${index + 1}`}</option>)}</select></label>)}</div>
-            <button className="btn-primary" disabled={loading || !mapping.employeeId || !mapping.name || Object.values(mapping).filter(Boolean).length !== new Set(Object.values(mapping).filter(Boolean)).size} onClick={async () => {
-              try { setLoading(true); setMessage(null); const { data } = await api.post("/imports/rmg-mis-import/preview", { workbookBase64, mapping, sheetName }); setPreview(data); setEditedRows({}); setAcceptedRows(data.rows.filter((row: any) => ["NEW", "CHANGED"].includes(row.status)).map((row: any) => row.rowNumber)); setWizardOpen(false); }
-              catch (error: any) { setMessage(error.response?.data?.error || "Preview failed."); }
-              finally { setLoading(false); }
-            }}>{loading ? "Reconciling…" : "Review rows"}</button>
-          </div>
-        </div>}
-        {preview && <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold">Review import · {preview.sheetName}</h3><p className="text-sm text-slate-500">Select rows to import. Select “Edit fields” to correct values before importing.</p><p className="mt-1 text-xs text-slate-500">{preview.rows.filter((row: any) => row.status === "NEW").length} new · {preview.rows.filter((row: any) => row.status === "CHANGED").length} changed · {preview.rows.filter((row: any) => row.status === "UNCHANGED").length} unchanged · {preview.rows.filter((row: any) => ["BLOCKED", "DUPLICATE"].includes(row.status)).length} need attention</p></div><button className="btn-primary" disabled={loading || !acceptedRows.length} onClick={async () => { try { setLoading(true); const { data } = await api.post("/imports/rmg-mis-import/commit", { workbookBase64, sheetName, mapping: preview.mapping, acceptedRowNumbers: acceptedRows, editedRows }); setMessage(`Workbook imported: ${data.createdCount} created, ${data.updatedCount} updated.`); setPreview(null); setAcceptedRows([]); queryClient.invalidateQueries({ queryKey: ["import-batches"] }); queryClient.invalidateQueries({ queryKey: ["resources"] }); } catch (error: any) { setMessage(error.response?.data?.error || "Import failed."); } finally { setLoading(false); } }}>{loading ? "Importing…" : `Import selected (${acceptedRows.length})`}</button></div><div className="flex flex-wrap items-center gap-3 rounded-lg bg-slate-50 px-4 py-3 text-sm"><span><strong>{acceptedRows.length}</strong> selected</span><button className="text-brand-700 hover:underline" onClick={() => setAcceptedRows(preview.rows.filter((row: any) => ["NEW", "CHANGED"].includes(row.status)).map((row: any) => row.rowNumber))}>Select new and changed</button><button className="text-slate-600 hover:underline" onClick={() => setAcceptedRows([])}>Clear selection</button></div><div className="max-h-[36rem] space-y-3 overflow-auto">{preview.rows.map((row: any) => { const selectable = ["NEW", "CHANGED", "UNCHANGED"].includes(row.status); const statusLabel: Record<string, string> = { NEW: "New resource", CHANGED: "Changes found", UNCHANGED: "No changes", DUPLICATE: "Duplicate ID", BLOCKED: "Needs attention" }; const selected = acceptedRows.includes(row.rowNumber); const rowValues = { ...row.values, ...(editedRows[row.rowNumber] || {}) }; const invalid = rowValues.email && !/^\\S+@\\S+\\.\\S+$/.test(rowValues.email); const hasEdits = Object.values(editedRows[row.rowNumber] || {}).some((value) => value.trim() !== ""); return <article key={row.rowNumber} className={`rounded-xl border p-4 ${selected ? "border-brand-300 bg-brand-50/30" : "border-slate-200 bg-white"}`}><div className="flex flex-wrap items-start justify-between gap-3"><div className="flex items-start gap-3">{selectable && <input aria-label={`Import row ${row.rowNumber}`} type="checkbox" checked={selected} onChange={() => setAcceptedRows(selected ? acceptedRows.filter((number) => number !== row.rowNumber) : [...acceptedRows, row.rowNumber])} className="mt-1 h-4 w-4" />}<div><div className="font-semibold">{row.values?.name || "Unnamed resource"}</div><div className="text-sm text-slate-500">ID {rowValues.employeeId || "missing"} · Worksheet row {row.rowNumber}</div></div></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold">{hasEdits ? "Edited · recheck on import" : statusLabel[row.status] || row.status}</span></div><details className="mt-3" open={row.status === "CHANGED" || row.status === "NEW"}><summary className="cursor-pointer text-sm font-medium text-brand-700">Edit fields</summary><div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{Object.entries(preview.mapping).filter(([field]) => field !== "employeeId").map(([field, header]) => { const original = row.values?.[field] ?? ""; const value = editedRows[row.rowNumber]?.[field] ?? original; const change = row.changes?.find((item: any) => item.field === field); return <label key={field} className="text-xs font-medium text-slate-600"><span className="mb-1 block">{field}{change && <span className="ml-2 text-amber-700">Current: {change.current ?? "—"}</span>}</span><input className="input text-sm" value={value} placeholder={`${header} · blank keeps existing`} onChange={(event) => setEditedRows({ ...editedRows, [row.rowNumber]: { ...editedRows[row.rowNumber], [field]: event.target.value } })} />{change && <span className="mt-1 block text-xs text-slate-500">Workbook: {change.proposed}</span>}</label>; })}</div></details>{row.notes?.map((note: string) => <div key={note} className="mt-2 text-sm text-amber-700">{note}</div>)}{row.errors?.map((error: string) => <div key={error} className="mt-2 text-sm text-red-700">{error}</div>)}</article>; })}</div>{preview.warnings.map((warning: string) => <div key={warning} className="text-sm text-slate-500">{warning}</div>)}</div>}
-      </div>
+      <ExcelImportWizard onImported={(text) => {
+        setMessage(text);
+        queryClient.invalidateQueries({ queryKey: ["quarantine"] });
+        queryClient.invalidateQueries({ queryKey: ["import-batches"] });
+        queryClient.invalidateQueries({ queryKey: ["resources"] });
+      }} />
 
       <div className="card p-4 space-y-2">
         <h2 className="text-sm font-semibold text-slate-700">Bulk Add Records</h2>
         <textarea
           className="input font-mono text-xs"
           rows={4}
-          placeholder="employeeId,name,email,gender,country,workLocation,location,costRate,currency,portfolioCode,managerName,designation,subCategory,dateOfJoining,totalYoe,taoExperience,skills,certifications"
+          placeholder="employeeId,name,gender,country,workLocation,location,costRate,currency,portfolioCode,managerName,designation,subCategory,dateOfJoining,totalYoe,taoExperience,skills,certifications"
           value={csvText}
-          onChange={(e) => setCsvText(e.target.value)}
+          onChange={(e) => { setCsvText(e.target.value); setCsvKey(crypto.randomUUID()); }}
         />
         <button className="btn-secondary" onClick={uploadCsv} disabled={!csvText.trim()}>
           Add Records
@@ -347,7 +287,7 @@ function ImportsTab() {
       {message && <div className="text-sm text-brand-700 bg-brand-50 border border-brand-100 rounded-md p-3">{message}</div>}
 
       <div className="card overflow-x-auto">
-        <h2 className="text-sm font-semibold text-slate-700 p-4 pb-0">Recent Batches</h2>
+        <h2 id="import-history" tabIndex={-1} className="text-sm font-semibold text-slate-700 p-4 pb-0">Recent Batches</h2>
         <table className="w-full text-sm mt-2">
           <thead>
             <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
@@ -361,7 +301,7 @@ function ImportsTab() {
           <tbody>
             {batches.map((b) => (
               <tr key={b.id} className="border-b border-slate-100 last:border-0">
-                <td className="py-2 px-4">{b.source}</td>
+                <td className="py-2 px-4">{b.source}<div className="text-xs text-slate-500">{b.id} · {b.status}</div></td>
                 <td className="py-2 px-4">{b.createdCount}</td>
                 <td className="py-2 px-4">{b.updatedCount}</td>
                 <td className="py-2 px-4">{b.quarantinedCount}</td>
@@ -372,36 +312,7 @@ function ImportsTab() {
         </table>
       </div>
 
-      <div className="card overflow-x-auto">
-        <div className="flex items-center justify-between p-4 pb-0"><h2 className="text-sm font-semibold text-slate-700">Quarantined Records (FR-1.5)</h2><button className="btn-secondary" onClick={revalidateAll} disabled={!quarantined.length}>Re-validate all</button></div>
-        <table className="w-full text-sm mt-2">
-          <thead>
-            <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
-              <th className="py-2 px-4">Employee ID</th>
-              <th className="py-2 px-4">Why quarantined</th>
-              <th className="py-2 px-4">Correct values</th>
-              <th className="py-2 px-4"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {quarantined.map((r) => (
-              <tr key={r.id} className="border-b border-slate-100 last:border-0">
-                <td className="py-2 px-4">{r.employeeId}</td>
-                <td className="py-2 px-4 text-red-600">{Array.isArray(r.errors) ? r.errors.join("; ") : String(r.errors || "Validation failed")}</td>
-                <td className="py-2 px-4"><div className="grid min-w-[32rem] grid-cols-2 gap-2">{Object.entries(r.rawData || {}).filter(([key]) => key !== "action").map(([key, value]) => <label key={key} className="text-xs text-slate-500">{key}<input className="input mt-1" value={quarantineDrafts[r.id]?.[key] ?? value ?? ""} onChange={(event) => setQuarantineDrafts({ ...quarantineDrafts, [r.id]: { ...(quarantineDrafts[r.id] || {}), [key]: event.target.value } })} /></label>)}</div></td>
-                <td className="py-2 px-4"><div className="flex flex-col gap-2"><button className="text-xs text-brand-700 hover:underline" onClick={() => revalidate(r)}>Re-validate & release</button><button className="text-xs text-red-600 hover:underline" onClick={() => discard(r.id)}>Discard</button></div></td>
-              </tr>
-            ))}
-            {quarantined.length === 0 && (
-              <tr>
-                <td colSpan={3} className="py-4 text-center text-slate-400">
-                  No quarantined records.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <QuarantineWorkspace />
     </div>
   );
 }
@@ -451,7 +362,7 @@ export default function Admin() {
   ];
   const visibleTabs = tabs.filter((t) => user && t.roles.includes(user.role));
 
-  const [tab, setTab] = useState<Tab>(visibleTabs[0]?.key ?? "imports");
+  const [tab, setTab] = useState<Tab>(new URLSearchParams(window.location.search).get("tab") === "imports" ? "imports" : visibleTabs[0]?.key ?? "imports");
 
   return (
     <div className="space-y-6">
