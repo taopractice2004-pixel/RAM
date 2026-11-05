@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
@@ -5,9 +6,22 @@ import { Allocation } from "../types";
 import StatusBadge from "../components/StatusBadge";
 
 export default function Allocations() {
+  const [resource, setResource] = useState("");
+  const [project, setProject] = useState("");
+  const [view, setView] = useState<"allocated" | "reallocated">("allocated");
+  const [status, setStatus] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const { data: allocations = [], isLoading } = useQuery<Allocation[]>({
-    queryKey: ["allocations"],
-    queryFn: async () => (await api.get("/allocations")).data,
+    queryKey: ["allocations", resource, project, status, view, startDate, endDate],
+    queryFn: async () => (await api.get("/allocations", { params: {
+      resource: resource || undefined,
+      project: project || undefined,
+       status: status || undefined,
+       reallocated: view === "reallocated" ? "true" : undefined,
+       startDate: startDate || undefined,
+      endDate: endDate || undefined,
+    } })).data,
   });
 
   return (
@@ -15,6 +29,25 @@ export default function Allocations() {
       <div>
         <h1 className="text-xl font-semibold text-slate-900">Allocations & Reallocations</h1>
         <p className="text-sm text-slate-500">Full history of assignments, scoped to your authorized portfolios.</p>
+      </div>
+
+      <div className="flex gap-2" role="tablist" aria-label="Allocation view">
+        {([ ["allocated", "Allocated"], ["reallocated", "Reallocated"] ] as const).map(([value, label]) => (
+          <button key={value} type="button" role="tab" aria-selected={view === value} onClick={() => setView(value)} className={`btn ${view === value ? "bg-brand-600 text-white" : "bg-white text-slate-600 border border-slate-300 hover:bg-slate-50"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="card p-4">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <div><label className="label">Resource</label><input className="input" value={resource} onChange={(event) => setResource(event.target.value)} placeholder="Name or employee ID" /></div>
+          <div><label className="label">Project</label><input className="input" value={project} onChange={(event) => setProject(event.target.value)} placeholder="Project name" /></div>
+          <div><label className="label">Status</label><select className="input" value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Active and scheduled</option><option value="ACTIVE">Active</option><option value="SCHEDULED">Scheduled</option><option value="CLOSED">Closed / History</option></select></div>
+          <div><label className="label">Starting on or after</label><input className="input" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></div>
+          <div><label className="label">Starting on or before</label><input className="input" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></div>
+        </div>
+        <button type="button" className="btn-secondary mt-3" onClick={() => { setResource(""); setProject(""); setStatus(""); setStartDate(""); setEndDate(""); }}>Reset filters</button>
       </div>
 
       <div className="card overflow-x-auto">
@@ -30,13 +63,14 @@ export default function Allocations() {
               <th className="py-2 px-4">Start</th>
               <th className="py-2 px-4">End</th>
               <th className="py-2 px-4">Status</th>
+              <th className="py-2 px-4">Reallocation</th>
               <th className="py-2 px-4">Created By</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={10} className="py-6 text-center text-slate-400">
+                <td colSpan={11} className="py-6 text-center text-slate-400">
                   Loading...
                 </td>
               </tr>
@@ -58,12 +92,13 @@ export default function Allocations() {
                 <td className="py-2 px-4">
                   <StatusBadge status={a.status} />
                 </td>
+                <td className="py-2 px-4 text-slate-500">{a.reallocatedFrom ? `From ${a.reallocatedFrom.project?.name || "previous allocation"}` : "—"}</td>
                 <td className="py-2 px-4 text-slate-500">{a.createdBy?.name}</td>
               </tr>
             ))}
             {!isLoading && allocations.length === 0 && (
               <tr>
-                <td colSpan={10} className="py-6 text-center text-slate-400">
+                <td colSpan={11} className="py-6 text-center text-slate-400">
                   No allocations found.
                 </td>
               </tr>

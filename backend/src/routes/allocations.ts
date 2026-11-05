@@ -11,19 +11,34 @@ import { deriveDefaultSubCategory } from "../utils/resourcePresentation";
 const router = Router();
 
 router.get("/", async (req, res) => {
-  const { resourceId, projectId, status } = req.query as Record<string, string | undefined>;
+  const { resourceId, projectId, resource, project, status, reallocated, startDate, endDate } = req.query as Record<string, string | undefined>;
   const where: any = { ...portfolioReadWhere(req, "portfolioId") };
   if (resourceId) where.resourceId = resourceId;
   if (projectId) where.projectId = projectId;
+  if (resource) where.resource = { OR: [
+    { name: { contains: resource, mode: "insensitive" } },
+    { employeeId: { contains: resource, mode: "insensitive" } },
+  ] };
+  if (project) where.project = { name: { contains: project, mode: "insensitive" } };
+  if (startDate || endDate) {
+    const start = startDate ? new Date(startDate) : null;
+    const end = endDate ? new Date(`${endDate}T23:59:59.999Z`) : null;
+    if ((start && Number.isNaN(start.getTime())) || (end && Number.isNaN(end.getTime()))) {
+      return res.status(400).json({ error: "Invalid allocation start date filter" });
+    }
+    where.startDate = { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) };
+  }
   if (status) {
     where.status = { in: status.split(",") };
   } else {
     where.status = { in: ["ACTIVE", "SCHEDULED"] };
   }
+  if (reallocated === "true") where.reallocatedFromId = { not: null };
+  if (reallocated === "false") where.reallocatedFromId = null;
 
   const allocations = await prisma.allocation.findMany({
     where,
-    include: { resource: true, project: true, task: true, createdBy: { select: { id: true, name: true } } },
+    include: { resource: true, project: true, task: true, createdBy: { select: { id: true, name: true } }, reallocatedFrom: { select: { id: true, project: { select: { name: true } } } } },
     orderBy: { startDate: "desc" },
   });
   res.json(allocations);

@@ -2,7 +2,7 @@
 
 A full-stack implementation of the **Resource Allocation & Management System** requirements
 document (`Resource Allocation and Management.pdf`), covering the **Phase 1 — MVP: Core
-Lifecycle** roadmap milestone (Section 10): daily HRMIS/import & validation, allocation,
+Lifecycle** roadmap milestone (Section 10): resource import & validation, allocation,
 reallocation, bench detection (committed/true), termination/offboarding with active-allocation
 checks, portfolio-scoped role-based access, basic filters, core dashboard, and basic reporting.
 
@@ -12,7 +12,7 @@ checks, portfolio-scoped role-based access, basic filters, core dashboard, and b
 |---|---|
 | Frontend | React 18 + TypeScript + Vite, React Router, TanStack Query, Tailwind CSS, Recharts |
 | Backend | Node.js 22 + TypeScript + Express, Prisma ORM, JWT auth, node-cron |
-| Database | PostgreSQL 16, running in Docker |
+| Database | PostgreSQL 16 (Docker Compose or user-local installation) |
 | Infra | Docker Compose (Postgres, Adminer, backend API, frontend static site via Nginx) |
 
 ## Quick start (Docker)
@@ -51,22 +51,38 @@ free tier: a permanent public URL, no installation for whoever you share it with
 
 ## Local development (without Docker)
 
-```bash
-# 1. Start just Postgres + Adminer
-docker compose up -d postgres adminer
+This machine has a user-local PostgreSQL 16 cluster (no Windows service) at
+`%LOCALAPPDATA%\RAM\data`, using binaries under `%LOCALAPPDATA%\RAM\pgsql\bin`.
+The backend connects to `localhost:5432`; keep the credentials in `backend/.env` private.
 
-# 2. Backend
-cd backend
-npm install
-npx prisma migrate dev   # applies schema to local Postgres (localhost:5433)
-npm run seed
-npm run dev               # http://localhost:4000
+Start PostgreSQL in PowerShell from the repository root (once per login/session; if already
+running, `pg_ctl` reports that and you can continue):
 
-# 3. Frontend (separate terminal)
-cd frontend
-npm install
-npm run dev               # http://localhost:5173
+```powershell
+$pg = "$env:LOCALAPPDATA\RAM\pgsql\bin"
+& "$pg\pg_ctl.exe" -D "$env:LOCALAPPDATA\RAM\data" -l "$env:LOCALAPPDATA\RAM\postgres.log" -o "-p 5432 -h 127.0.0.1" start
 ```
+
+Then, in a backend terminal:
+
+```powershell
+cd backend
+npm run prisma:generate
+npx prisma migrate dev
+npm run seed
+npm run dev
+```
+
+Run `npx prisma migrate dev` and `npm run seed` only when initializing/updating the database,
+not on every start. In a separate terminal, start the frontend if it is not already running:
+
+```powershell
+cd frontend
+npm run dev
+```
+
+The PostgreSQL data and log stay under your user profile. Docker Compose remains separate: its
+PostgreSQL is published on host port 5433 and the container backend connects internally on 5432.
 
 ## Architecture
 
@@ -77,7 +93,7 @@ backend/
   src/routes/              One file per capability area (resources, allocations, bench, ...)
   src/services/            Business logic: import validation, bench classification, capacity checks
   src/middleware/          JWT auth + role/portfolio RBAC enforcement
-  src/jobs/                node-cron: daily import, allocation transitions, bench aging alerts
+  src/jobs/                node-cron: allocation transitions and bench aging alerts
 
 frontend/
   src/pages/               One page per capability area
@@ -89,7 +105,7 @@ frontend/
 
 | Requirement doc section | Implemented as |
 |---|---|
-| FR-1.1–1.5 (Resource repository & import) | `Resource`/`Skill`/`Certification` models; searchable repository filters; audited profile updates; `POST /imports/run`, `/imports/upload`; quarantine review and audited discard UI (Admin → Import & Quarantine) |
+| FR-1.1–1.5 (Resource repository & import) | `Resource`/`Skill`/`Certification` models; searchable repository filters; audited profile updates; RMG MIS Excel import and Bulk Add Records CSV upload; quarantine review and audited discard UI (Admin → Import & Quarantine) |
 | FR-2.1–2.4 (Allocation) | `POST /allocations`, capacity/conflict check (`services/allocationService.ts`), partial allocation via `allocationPercent` |
 | FR-3.1–3.4 (Reallocation) | `POST /allocations/:id/reallocate`, cross-portfolio authorization check on both losing & receiving portfolio, stakeholder notifications, full history via `reallocatedFromId` chain |
 | FR-4.1–4.4 (Bench management) | Automatic transition on unassignment/allocation end (`services/benchService.ts`), Committed vs. True classification, RMG/TA aging alerts |

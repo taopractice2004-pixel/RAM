@@ -18,7 +18,11 @@ router.get("/", requireRole("ADMIN", "RMG", "HR"), async (req, res) => {
     orderBy: { createdAt: "desc" },
     take: 200,
   });
-  res.json(logs);
+  const safeLogs = logs.map((log) => {
+    const payload = log.entityType === "ImportRecord" ? { before: null, after: null } : {};
+    return { ...log, ...payload };
+  });
+  res.json(safeLogs);
 });
 
 export default router;

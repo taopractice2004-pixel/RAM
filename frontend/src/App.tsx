@@ -11,6 +11,7 @@ import Approvals from "./pages/Approvals";
 import Reports from "./pages/Reports";
 import Demand from "./pages/Demand";
 import Admin from "./pages/Admin";
+import Alerts from "./pages/Alerts";
 
 export default function App() {
   return (
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="resources/:id" element={<ResourceDetail />} />
         <Route path="allocations" element={<Allocations />} />
         <Route path="bench" element={<Bench />} />
+        <Route path="alerts" element={<Alerts />} />
         <Route path="demand" element={<Demand />} />
         <Route
           path="approvals"

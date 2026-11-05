@@ -68,6 +68,7 @@ export interface Resource {
   portfolioId: string;
   managerName?: string | null;
   designation?: string | null;
+  role?: string | null;
   subCategory?: string | null;
   dateOfJoining?: string | null;
   priorExperienceYears?: number;
@@ -145,6 +146,7 @@ export interface Allocation {
   project?: Project;
   task?: Task | null;
   createdBy?: { id: string; name: string };
+  reallocatedFrom?: { id: string; project?: { name: string } } | null;
 }
 
 export interface TerminationRequest {
@@ -211,6 +213,7 @@ export interface Notification {
   type: string;
   message: string;
   read: boolean;
+  resolvedAt: string | null;
   createdAt: string;
   relatedEntityType: string | null;
   relatedEntityId: string | null;
@@ -231,9 +234,20 @@ export interface ImportRecord {
   id: string;
   batchId: string;
   employeeId: string;
+  createdAt?: string;
   rawData: Record<string, string>;
+  originalSource?: Record<string, string> | null;
+  originalMapped?: Record<string, string> | null;
+  rowNumber?: number | null;
+  updatedBy?: string | null;
+  updatedAt?: string | null;
+  batch?: ImportBatch & { provenance?: Record<string, unknown>; actorId?: string };
   status: string;
   errors: string[] | null;
+  version?: number;
+  validation?: { valid: boolean; errors: string[]; version: number; at: string } | null;
+  review?: { reviewed: boolean; actorId: string; at: string } | null;
+  capabilities?: { edit: boolean; release: boolean; review: boolean; discard: boolean };
 }
 
 export interface DashboardSummary {

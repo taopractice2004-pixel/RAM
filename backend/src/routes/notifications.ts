@@ -19,6 +19,13 @@ router.post("/:id/read", async (req, res) => {
   res.json(updated);
 });
 
+router.post("/:id/resolve", async (req, res) => {
+  const notification = await prisma.notification.findUnique({ where: { id: req.params.id } });
+  if (!notification || notification.userId !== req.user!.id) return res.status(404).json({ error: "Not found" });
+  const updated = await prisma.notification.update({ where: { id: notification.id }, data: { read: true, resolvedAt: new Date() } });
+  res.json(updated);
+});
+
 router.post("/read-all", async (req, res) => {
   await prisma.notification.updateMany({ where: { userId: req.user!.id, read: false }, data: { read: true } });
   res.json({ ok: true });

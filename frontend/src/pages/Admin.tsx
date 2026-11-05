@@ -3,6 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { ImportBatch, ImportRecord, Portfolio } from "../types";
+import ExcelImportWizard from "../components/ExcelImportWizard";
+import QuarantineWorkspace from "../components/QuarantineWorkspace";
 
 type Tab = "authorizations" | "users" | "imports" | "audit";
 
@@ -27,6 +29,8 @@ function AuthorizationsTab() {
   const queryClient = useQueryClient();
   const [userId, setUserId] = useState("");
   const [portfolioId, setPortfolioId] = useState("");
+  const [verticalCode, setVerticalCode] = useState("");
+  const [resolvedPortfolio, setResolvedPortfolio] = useState<Portfolio | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const { data: authorizations = [] } = useQuery<AuthorizationRow[]>({
@@ -35,6 +39,20 @@ function AuthorizationsTab() {
   });
   const { data: users = [] } = useQuery<UserRow[]>({ queryKey: ["users"], queryFn: async () => (await api.get("/users")).data });
   const { data: portfolios = [] } = useQuery<Portfolio[]>({ queryKey: ["portfolios"], queryFn: async () => (await api.get("/portfolios")).data });
+
+  const normalizedCode = verticalCode.trim().toUpperCase();
+  const matchingPortfolio = portfolios.find((portfolio) => portfolio.code.toUpperCase() === normalizedCode) ?? null;
+
+  async function resolvePortfolioCode() {
+    setError(null);
+    setResolvedPortfolio(null);
+    try {
+      const { data } = await api.get("/portfolios/resolve-code", { params: { code: normalizedCode } });
+      setResolvedPortfolio(data);
+    } catch (err: any) {
+      setError(err.response?.data?.error || "No portfolio matches this code.");
+    }
+  }
 
   async function grant() {
     setError(null);
@@ -53,6 +71,14 @@ function AuthorizationsTab() {
 
   return (
     <div className="space-y-4">
+      <div className="card p-4 space-y-3">
+        <div><h2 className="text-sm font-semibold text-slate-800">Manage verticals</h2><p className="text-xs text-slate-500">Validate a code against existing portfolios and confirm its resolved vertical name. Add new verticals through the existing setup process.</p></div>
+        <div className="flex flex-wrap items-end gap-3"><label className="label">Portfolio / vertical code<input className="input" value={verticalCode} onChange={(e) => { setVerticalCode(e.target.value.toUpperCase()); setResolvedPortfolio(null); }} placeholder="e.g. FIN" /></label><button className="btn-primary" onClick={resolvePortfolioCode} disabled={!normalizedCode}>Resolve code</button></div>
+        {matchingPortfolio && <p className="text-xs text-slate-500">Matching existing vertical: {matchingPortfolio.name} ({matchingPortfolio.code}).</p>}
+        {resolvedPortfolio && <div className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-800">Code confirmed: <strong>{resolvedPortfolio.name}</strong> · {resolvedPortfolio.code}</div>}
+        <div className="flex flex-wrap gap-2">{portfolios.map((portfolio) => <span key={portfolio.id} className="badge border border-slate-200 bg-slate-50 text-slate-700">{portfolio.name} · {portfolio.code}</span>)}</div>
+        {error && <div className="text-sm text-red-600">{error}</div>}
+      </div>
       <div className="card p-4 flex flex-wrap items-end gap-3">
         <div>
           <label className="label">User</label>
@@ -221,68 +247,47 @@ function UsersTab() {
 function ImportsTab() {
   const queryClient = useQueryClient();
   const [csvText, setCsvText] = useState("");
+  const [csvKey, setCsvKey] = useState(() => crypto.randomUUID());
   const [message, setMessage] = useState<string | null>(null);
-
   const { data: batches = [] } = useQuery<ImportBatch[]>({ queryKey: ["import-batches"], queryFn: async () => (await api.get("/imports")).data });
-  const { data: quarantined = [] } = useQuery<ImportRecord[]>({
-    queryKey: ["quarantine"],
-    queryFn: async () => (await api.get("/imports/quarantine/list")).data,
-  });
-
-  async function runImport() {
-    const { data } = await api.post("/imports/run");
-    setMessage(`Import complete: created ${data.createdCount}, updated ${data.updatedCount}, quarantined ${data.quarantinedCount}.`);
-    queryClient.invalidateQueries({ queryKey: ["import-batches"] });
-    queryClient.invalidateQueries({ queryKey: ["quarantine"] });
-    queryClient.invalidateQueries({ queryKey: ["resources"] });
-  }
 
   async function uploadCsv() {
-    const { data } = await api.post("/imports/upload", { csvText });
-    setMessage(`Upload complete: created ${data.createdCount}, updated ${data.updatedCount}, quarantined ${data.quarantinedCount}.`);
-    setCsvText("");
+    const { data } = await api.post("/imports/upload", { csvText, idempotencyKey: csvKey });
+    setMessage(`Batch ${data.id}: created ${data.createdCount}, updated ${data.updatedCount}, quarantined ${data.quarantinedCount}, failed ${data.totals?.FAILED ?? 0}, pending ${data.totals?.PENDING ?? 0}.${data.notificationPending ? " Notification delivery pending; retry unchanged input." : ""}`);
+    if (!data.notificationPending && !data.totals?.PENDING && !data.totals?.FAILED) { setCsvText(""); setCsvKey(crypto.randomUUID()); }
     queryClient.invalidateQueries({ queryKey: ["import-batches"] });
     queryClient.invalidateQueries({ queryKey: ["quarantine"] });
     queryClient.invalidateQueries({ queryKey: ["resources"] });
   }
 
-  async function discard(recordId: string) {
-    await api.post(`/imports/quarantine/${recordId}/discard`);
-    queryClient.invalidateQueries({ queryKey: ["quarantine"] });
-  }
 
   return (
     <div className="space-y-6">
-      <div className="card p-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-700">Daily HRMIS / Manual Sheet Import</h2>
-          <p className="text-xs text-slate-400">
-            Runs automatically every day at 02:00. Trigger manually here to demo without waiting (FR-1.4).
-          </p>
-        </div>
-        <button className="btn-primary" onClick={runImport}>
-          Run Import Now
-        </button>
-      </div>
+      <ExcelImportWizard onImported={(text) => {
+        setMessage(text);
+        queryClient.invalidateQueries({ queryKey: ["quarantine"] });
+        queryClient.invalidateQueries({ queryKey: ["import-batches"] });
+        queryClient.invalidateQueries({ queryKey: ["resources"] });
+      }} />
 
       <div className="card p-4 space-y-2">
-        <h2 className="text-sm font-semibold text-slate-700">Ad-hoc CSV Upload</h2>
+        <h2 className="text-sm font-semibold text-slate-700">Bulk Add Records</h2>
         <textarea
           className="input font-mono text-xs"
           rows={4}
-          placeholder="employeeId,name,email,gender,country,workLocation,location,costRate,currency,portfolioCode,managerName,designation,subCategory,dateOfJoining,totalYoe,taoExperience,skills,certifications,action"
+          placeholder="employeeId,name,gender,country,workLocation,location,costRate,currency,portfolioCode,managerName,designation,subCategory,dateOfJoining,totalYoe,taoExperience,skills,certifications"
           value={csvText}
-          onChange={(e) => setCsvText(e.target.value)}
+          onChange={(e) => { setCsvText(e.target.value); setCsvKey(crypto.randomUUID()); }}
         />
         <button className="btn-secondary" onClick={uploadCsv} disabled={!csvText.trim()}>
-          Upload & Import
+          Add Records
         </button>
       </div>
 
       {message && <div className="text-sm text-brand-700 bg-brand-50 border border-brand-100 rounded-md p-3">{message}</div>}
 
       <div className="card overflow-x-auto">
-        <h2 className="text-sm font-semibold text-slate-700 p-4 pb-0">Recent Batches</h2>
+        <h2 id="import-history" tabIndex={-1} className="text-sm font-semibold text-slate-700 p-4 pb-0">Recent Batches</h2>
         <table className="w-full text-sm mt-2">
           <thead>
             <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
@@ -296,7 +301,7 @@ function ImportsTab() {
           <tbody>
             {batches.map((b) => (
               <tr key={b.id} className="border-b border-slate-100 last:border-0">
-                <td className="py-2 px-4">{b.source}</td>
+                <td className="py-2 px-4">{b.source}<div className="text-xs text-slate-500">{b.id} · {b.status}</div></td>
                 <td className="py-2 px-4">{b.createdCount}</td>
                 <td className="py-2 px-4">{b.updatedCount}</td>
                 <td className="py-2 px-4">{b.quarantinedCount}</td>
@@ -307,38 +312,7 @@ function ImportsTab() {
         </table>
       </div>
 
-      <div className="card overflow-x-auto">
-        <h2 className="text-sm font-semibold text-slate-700 p-4 pb-0">Quarantined Records (FR-1.5)</h2>
-        <table className="w-full text-sm mt-2">
-          <thead>
-            <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
-              <th className="py-2 px-4">Employee ID</th>
-              <th className="py-2 px-4">Errors</th>
-              <th className="py-2 px-4"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {quarantined.map((r) => (
-              <tr key={r.id} className="border-b border-slate-100 last:border-0">
-                <td className="py-2 px-4">{r.employeeId}</td>
-                <td className="py-2 px-4 text-red-600">{(r.errors || []).join("; ")}</td>
-                <td className="py-2 px-4">
-                  <button className="text-xs text-red-600 hover:underline" onClick={() => discard(r.id)}>
-                    Discard
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {quarantined.length === 0 && (
-              <tr>
-                <td colSpan={3} className="py-4 text-center text-slate-400">
-                  No quarantined records.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <QuarantineWorkspace />
     </div>
   );
 }
@@ -381,14 +355,14 @@ export default function Admin() {
   const { user } = useAuth();
 
   const tabs: { key: Tab; label: string; roles: string[] }[] = [
-    { key: "authorizations", label: "Portfolio Authorizations", roles: ["ADMIN"] },
+    { key: "authorizations", label: "Verticals & Authorizations", roles: ["ADMIN"] },
     { key: "users", label: "Users", roles: ["ADMIN", "RMG"] },
     { key: "imports", label: "Import & Quarantine", roles: ["ADMIN", "RMG", "HR"] },
     { key: "audit", label: "Audit Log", roles: ["ADMIN", "RMG", "HR"] },
   ];
   const visibleTabs = tabs.filter((t) => user && t.roles.includes(user.role));
 
-  const [tab, setTab] = useState<Tab>(visibleTabs[0]?.key ?? "imports");
+  const [tab, setTab] = useState<Tab>(new URLSearchParams(window.location.search).get("tab") === "imports" ? "imports" : visibleTabs[0]?.key ?? "imports");
 
   return (
     <div className="space-y-6">
