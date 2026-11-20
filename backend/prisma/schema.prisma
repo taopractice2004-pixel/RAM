@@ -19,7 +19,6 @@ enum RoleName {
 }
 
 enum ResourceStatus {
-  AVAILABLE
   ALLOCATED
   BENCH_COMMITTED
   BENCH_TRUE
@@ -174,7 +173,7 @@ model Resource {
   subCategory      String?
   dateOfJoining    DateTime?
   priorExperienceYears Float      @default(0)
-  status           ResourceStatus @default(AVAILABLE)
+  status           ResourceStatus @default(BENCH_TRUE)
   benchSince       DateTime?
   sourceSystem     String         @default("MANUAL")
   createdAt        DateTime       @default(now())
@@ -433,9 +432,32 @@ model Notification {
   relatedEntityId    String?
   read               Boolean          @default(false)
   resolvedAt         DateTime?
+  resolvedById       String?
+  resolveReason      String?
+  resolveNote        String?
   createdAt          DateTime         @default(now())
 
   user User @relation(fields: [userId], references: [id])
+}
+
+model NotificationRule {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  enabled     Boolean  @default(true)
+  recipients  String[]
+  schedule    String
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+}
+
+model NotificationEmailLog {
+  id             String   @id @default(uuid())
+  ruleKey        String
+  notificationId String?
+  recipient      String
+  status         String
+  error          String?
+  sentAt         DateTime @default(now())
 }
 
 model AuditLog {

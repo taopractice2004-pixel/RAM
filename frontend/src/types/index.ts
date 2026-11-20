@@ -1,7 +1,7 @@
 export type RoleName = "ADMIN" | "RMG" | "DELIVERY" | "HR" | "TA" | "VIEWER";
 export type Gender = "FEMALE" | "MALE" | "OTHER" | "UNDISCLOSED";
 
-export type ResourceStatus = "AVAILABLE" | "ALLOCATED" | "BENCH_COMMITTED" | "BENCH_TRUE" | "ON_ML" | "TERMINATED";
+export type ResourceStatus = "ALLOCATED" | "BENCH_COMMITTED" | "BENCH_TRUE" | "ON_ML" | "TERMINATED";
 
 export type AllocationStatus = "SCHEDULED" | "ACTIVE" | "CLOSED" | "CANCELLED";
 

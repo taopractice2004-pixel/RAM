@@ -1,5 +1,4 @@
 const COLORS: Record<string, string> = {
-  AVAILABLE: "bg-emerald-100 text-emerald-700",
   ALLOCATED: "bg-brand-100 text-brand-700",
   BENCH_COMMITTED: "bg-amber-100 text-amber-700",
   BENCH_TRUE: "bg-orange-100 text-orange-700",

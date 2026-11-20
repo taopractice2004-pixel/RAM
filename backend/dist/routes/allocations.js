@@ -1,6 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.allocationEvents = void 0;
 const express_1 = require("express");
+const node_events_1 = require("node:events");
+const client_1 = require("@prisma/client");
 const zod_1 = require("zod");
 const prisma_1 = require("../prisma");
 const rbac_1 = require("../middleware/rbac");
@@ -9,23 +12,157 @@ const benchService_1 = require("../services/benchService");
 const audit_1 = require("../utils/audit");
 const scope_1 = require("../utils/scope");
 const resourcePresentation_1 = require("../utils/resourcePresentation");
+const notifications_1 = require("./notifications");
 const router = (0, express_1.Router)();
+exports.allocationEvents = new node_events_1.EventEmitter({ captureRejections: true });
+exports.allocationEvents.on("error", (error) => console.error("Allocation event listener failed", error));
+const endDateSchema = zod_1.z.object({
+    projectId: zod_1.z.string().uuid(),
+    mode: zod_1.z.enum(["extend", "edit"]),
+    endDate: zod_1.z.union([zod_1.z.string().date(), zod_1.z.string().datetime({ offset: true })])
+        .refine((value) => Number.isFinite(new Date(value).getTime()), "Invalid ISO date")
+        .transform((value) => new Date(value)),
+    reason: zod_1.z.string().trim().optional(),
+}).strict();
+router.patch("/:id/end-date", (0, rbac_1.requireRole)(...rbac_1.LIFECYCLE_ACTION_ROLES), async (req, res, next) => {
+    const parsed = endDateSchema.safeParse(req.body);
+    if (!parsed.success)
+        return res.status(400).json({ error: parsed.error.flatten() });
+    if (!zod_1.z.string().uuid().safeParse(req.params.id).success) {
+        return res.status(400).json({ error: "Invalid allocation ID" });
+    }
+    const { projectId, mode, endDate, reason } = parsed.data;
+    try {
+        const allocation = await prisma_1.prisma.allocation.findUnique({ where: { id: req.params.id } });
+        if (!allocation)
+            return res.status(404).json({ error: "Allocation not found" });
+        const authorized = await (0, rbac_1.assertPortfolioAuthorized)(req, res, [allocation.portfolioId], "Allocation", allocation.id);
+        if (!authorized)
+            return;
+        const result = await prisma_1.prisma.$transaction(async (tx) => {
+            const current = await tx.allocation.findUnique({ where: { id: allocation.id } });
+            if (!current)
+                return { status: 404, error: "Allocation not found" };
+            if (current.portfolioId !== allocation.portfolioId) {
+                return { status: 409, error: "Allocation changed; reload and retry" };
+            }
+            if (current.projectId !== projectId) {
+                return { status: 400, error: "Project must match the allocation's existing project" };
+            }
+            if (!["ACTIVE", "SCHEDULED"].includes(current.status)) {
+                return { status: 400, error: "Only ACTIVE or SCHEDULED allocations can be updated" };
+            }
+            const now = new Date();
+            const today = new Date(now);
+            today.setUTCHours(0, 0, 0, 0);
+            if (endDate < today)
+                return { status: 400, error: "End date must not be in the past" };
+            if (endDate < current.startDate)
+                return { status: 400, error: "End date must be on or after the start date" };
+            if (mode === "extend" && !current.endDate) {
+                return { status: 400, error: "Cannot extend an allocation without a current end date; use edit" };
+            }
+            if (mode === "extend" && current.endDate && endDate <= current.endDate) {
+                return { status: 400, error: "Extended end date must be later than the current end date" };
+            }
+            const updated = await tx.allocation.update({ where: { id: current.id }, data: { endDate } });
+            const audit = {
+                actorId: req.user.id,
+                action: "ALLOCATION_UPDATED",
+                entityType: "Allocation",
+                entityId: current.id,
+                allocationId: current.id,
+                projectId: current.projectId,
+                resourceId: current.resourceId,
+                portfolioId: current.portfolioId,
+                reason: reason ?? null,
+                timestamp: now.toISOString(),
+                oldEndDate: current.endDate?.toISOString() ?? null,
+                newEndDate: updated.endDate.toISOString(),
+                mode,
+                before: {
+                    allocationId: current.id,
+                    projectId: current.projectId,
+                    resourceId: current.resourceId,
+                    startDate: current.startDate.toISOString(),
+                    endDate: current.endDate?.toISOString() ?? null,
+                },
+                after: {
+                    allocationId: updated.id,
+                    projectId: updated.projectId,
+                    resourceId: updated.resourceId,
+                    startDate: updated.startDate.toISOString(),
+                    endDate: updated.endDate.toISOString(),
+                    actorId: req.user.id,
+                    timestamp: now.toISOString(),
+                    mode,
+                },
+            };
+            await (0, audit_1.writeAudit)({ ...audit, reason }, tx);
+            return { allocation: updated, audit };
+        }, { isolationLevel: client_1.Prisma.TransactionIsolationLevel.Serializable });
+        if (result.status !== undefined)
+            return res.status(result.status).json({ error: result.error });
+        const allocationRule = await prisma_1.prisma.notificationRule.findUnique({ where: { key: "ALLOCATION_MODIFIED" } });
+        if (allocationRule?.enabled !== false) {
+            const recipients = await prisma_1.prisma.user.findMany({ where: { active: true, role: { in: ["ADMIN", "RMG"] } } });
+            const summary = `Allocation ${mode} changed for ${allocation.resourceId}. New project end date: ${endDate.toISOString().slice(0, 10)}.`;
+            for (const recipient of recipients)
+                await (0, notifications_1.deliverEmail)("ALLOCATION_MODIFIED", recipient.email, "Allocation modified", summary);
+        }
+        try {
+            exports.allocationEvents.emit("allocation.updated", result.audit);
+        }
+        catch (error) {
+            console.error("Allocation event listener failed", error);
+        }
+        return res.json(result.allocation);
+    }
+    catch (error) {
+        if (error instanceof client_1.Prisma.PrismaClientKnownRequestError) {
+            if (error.code === "P2034")
+                return res.status(409).json({ error: "Allocation changed; reload and retry" });
+            if (error.code === "P2025")
+                return res.status(404).json({ error: "Allocation not found" });
+        }
+        return next(error);
+    }
+});
 router.get("/", async (req, res) => {
-    const { resourceId, projectId, status } = req.query;
+    const { resourceId, projectId, resource, project, status, reallocated, startDate, endDate } = req.query;
     const where = { ...(0, scope_1.portfolioReadWhere)(req, "portfolioId") };
     if (resourceId)
         where.resourceId = resourceId;
     if (projectId)
         where.projectId = projectId;
+    if (resource)
+        where.resource = { OR: [
+                { name: { contains: resource, mode: "insensitive" } },
+                { employeeId: { contains: resource, mode: "insensitive" } },
+            ] };
+    if (project)
+        where.project = { name: { contains: project, mode: "insensitive" } };
+    if (startDate || endDate) {
+        const start = startDate ? new Date(startDate) : null;
+        const end = endDate ? new Date(`${endDate}T23:59:59.999Z`) : null;
+        if ((start && Number.isNaN(start.getTime())) || (end && Number.isNaN(end.getTime()))) {
+            return res.status(400).json({ error: "Invalid allocation start date filter" });
+        }
+        where.startDate = { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) };
+    }
     if (status) {
         where.status = { in: status.split(",") };
     }
     else {
         where.status = { in: ["ACTIVE", "SCHEDULED"] };
     }
+    if (reallocated === "true")
+        where.reallocatedFromId = { not: null };
+    if (reallocated === "false")
+        where.reallocatedFromId = null;
     const allocations = await prisma_1.prisma.allocation.findMany({
         where,
-        include: { resource: true, project: true, task: true, createdBy: { select: { id: true, name: true } } },
+        include: { resource: true, project: true, task: true, createdBy: { select: { id: true, name: true } }, reallocatedFrom: { select: { id: true, project: { select: { name: true } } } } },
         orderBy: { startDate: "desc" },
     });
     res.json(allocations);

@@ -1,10 +1,11 @@
 import { prisma } from "../prisma";
 import { writeAudit } from "../utils/audit";
 import { deriveDefaultSubCategory } from "../utils/resourcePresentation";
+import { deliverEmail } from "../routes/notifications";
 
 const DEFAULT_COMMITTED_WINDOW_DAYS = 14;
 const DEFAULT_TRUE_BENCH_THRESHOLD_DAYS = 30;
-const DEFAULT_AVAILABLE_TO_BENCH_DAYS = 60;
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 export async function getBenchConfig(portfolioId: string) {
   const specific = await prisma.benchConfig.findUnique({ where: { portfolioId } });
@@ -64,38 +65,6 @@ export async function reclassifyResourceBenchStatus(resourceId: string, actorId?
   });
 }
 
-export async function reclassifyAvailableResourcesFromDateOfJoining(actorId?: string | null) {
-  const now = new Date();
-  const candidates = await prisma.resource.findMany({
-    where: { status: "AVAILABLE", dateOfJoining: { not: null } },
-  });
-
-  for (const resource of candidates) {
-    const daysSinceJoining = (now.getTime() - resource.dateOfJoining!.getTime()) / (1000 * 60 * 60 * 24);
-    if (daysSinceJoining < DEFAULT_AVAILABLE_TO_BENCH_DAYS) continue;
-
-    await prisma.resource.update({
-      where: { id: resource.id },
-      data: {
-        status: "BENCH_TRUE",
-        benchSince: resource.benchSince ?? resource.dateOfJoining,
-        subCategory: deriveDefaultSubCategory({ status: "BENCH_TRUE", subCategory: resource.subCategory }),
-      },
-    });
-
-    await writeAudit({
-      actorId: actorId ?? null,
-      action: "AUTO_MOVE_AVAILABLE_TO_BENCH",
-      entityType: "Resource",
-      entityId: resource.id,
-      portfolioId: resource.portfolioId,
-      before: { status: resource.status, benchSince: resource.benchSince },
-      after: { status: "BENCH_TRUE", benchSince: resource.benchSince ?? resource.dateOfJoining },
-      message: `Resource moved from AVAILABLE to BENCH_TRUE after ${DEFAULT_AVAILABLE_TO_BENCH_DAYS}+ days from DOJ without an assignment`,
-    });
-  }
-}
-
 /** FR-4.3 / FR-11.3: alert RMG (and TA) when a resource ages on True Bench past threshold. */
 export async function runBenchAgingAlerts() {
   const trueBenchResources = await prisma.resource.findMany({
@@ -121,9 +90,11 @@ export async function runBenchAgingAlerts() {
     if (alreadyNotifiedToday) continue;
 
     const message = `${resource.name} (${resource.employeeId}) has been on True Bench for ${Math.floor(daysOnBench)} days, exceeding the ${config.trueBenchAgingThresholdDays}-day threshold.`;
+    const rule = await prisma.notificationRule.findUnique({ where: { key: "BENCH_AGEING" } });
+    if (rule?.enabled === false) continue;
 
     for (const user of [...rmgUsers, ...taUsers]) {
-      await prisma.notification.create({
+      const notification = await prisma.notification.create({
         data: {
           userId: user.id,
           type: "BENCH_AGING",
@@ -132,6 +103,70 @@ export async function runBenchAgingAlerts() {
           relatedEntityId: resource.id,
         },
       });
+      await deliverEmail("BENCH_AGEING", user.email, `${resource.name} has been on bench for ${Math.floor(daysOnBench)} days`, message, notification.id);
+    }
+  }
+}
+
+export async function runUpcomingBenchNotices(now = new Date()) {
+  const rule = await prisma.notificationRule.findUnique({ where: { key: "ADVANCE_BENCH_NOTICE" } });
+  if (rule?.enabled === false) return;
+
+  const recipientGroups = (rule?.recipients ?? ["Employee", "Delivery Leader", "PMO"]).map((recipient) => recipient.toLocaleLowerCase());
+  const includeDeliveryLeaders = recipientGroups.length === 0 || recipientGroups.some((recipient) => ["delivery leader", "delivery team"].includes(recipient));
+  const includePmo = recipientGroups.length === 0 || recipientGroups.some((recipient) => ["pmo", "rmg team", "rmg leader"].includes(recipient));
+  const portfolioLeaders = includeDeliveryLeaders || includePmo
+    ? await prisma.user.findMany({
+      where: { active: true, role: { in: ["DELIVERY", "RMG"] } },
+      select: { email: true, role: true, portfolioAuthorizations: { where: { isActive: true }, select: { portfolioId: true } } },
+    })
+    : [];
+  const resources = await prisma.resource.findMany({
+    where: { status: "ALLOCATED", allocations: { some: { status: "ACTIVE", endDate: { not: null } } } },
+    include: {
+      allocations: {
+        where: { status: { in: ["ACTIVE", "SCHEDULED"] } },
+        include: { project: { select: { name: true } } },
+        orderBy: { startDate: "asc" },
+      },
+    },
+  });
+
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const todayKey = new Date(today).toISOString().slice(0, 10);
+  for (const resource of resources) {
+    if (resource.allocations.length !== 1) continue;
+    const allocation = resource.allocations[0];
+    if (allocation.status !== "ACTIVE" || !allocation.endDate) continue;
+
+    const benchDate = Date.UTC(allocation.endDate.getUTCFullYear(), allocation.endDate.getUTCMonth(), allocation.endDate.getUTCDate() + 1);
+    const daysUntilBench = Math.round((benchDate - today) / MS_PER_DAY);
+    if (daysUntilBench < 1 || daysUntilBench > 60) continue;
+    const isDailyNotice = daysUntilBench <= 30;
+    const deliveryDate = new Date(benchDate).toISOString().slice(0, 10);
+    const noticeId = `${resource.id}:${deliveryDate}:${isDailyNotice ? `daily:${todayKey}` : "60-day"}`;
+    const alreadySent = await prisma.notificationEmailLog.findFirst({
+      where: { ruleKey: "ADVANCE_BENCH_NOTICE", notificationId: noticeId, status: "SENT" },
+      select: { id: true },
+    });
+    if (alreadySent) continue;
+    if (!resource.email?.trim()) {
+      console.warn(`[scheduler] advance bench notice skipped for ${resource.employeeId}: employee email is missing`);
+      continue;
+    }
+
+    const cc = [...new Set(portfolioLeaders
+      .filter((user) => (user.role === "RMG" && includePmo)
+        || (user.role === "DELIVERY" && includeDeliveryLeaders && user.portfolioAuthorizations.some((grant) => grant.portfolioId === resource.portfolioId)))
+      .map((user) => user.email)
+      .filter((email) => email.toLocaleLowerCase() !== resource.email!.trim().toLocaleLowerCase()))];
+    const subject = isDailyNotice
+      ? `Bench in ${daysUntilBench} day${daysUntilBench === 1 ? "" : "s"}: ${resource.name}`
+      : `Upcoming bench in 60 days: ${resource.name}`;
+    const message = `${resource.name} (${resource.employeeId}) is expected to become available on ${deliveryDate}, in ${daysUntilBench} day${daysUntilBench === 1 ? "" : "s"}. Their assignment to ${allocation.project.name} ends on ${allocation.endDate.toISOString().slice(0, 10)}.${isDailyNotice ? "\nThis is the daily reminder for the 30-day pre-bench period." : "\nThis is the 60-day advance bench notice."}`;
+    const result = await deliverEmail("ADVANCE_BENCH_NOTICE", resource.email.trim(), subject, message, noticeId, undefined, cc);
+    if (result.status !== "SENT") {
+      console.error(`[scheduler] advance bench notice failed for ${resource.employeeId}: ${result.error ?? "email delivery failed"}`);
     }
   }
 }
@@ -178,5 +213,4 @@ export async function processAllocationTransitions() {
     await reclassifyResourceBenchStatus(allocation.resourceId);
   }
 
-  await reclassifyAvailableResourcesFromDateOfJoining();
 }

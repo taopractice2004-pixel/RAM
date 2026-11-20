@@ -19,8 +19,17 @@ router.get("/", async (req, res) => {
     });
     res.json(portfolios);
 });
+router.get("/resolve-code", (0, rbac_1.requireRole)("ADMIN"), async (req, res) => {
+    const parsed = zod_1.z.object({ code: zod_1.z.string().trim().min(1).max(20).regex(/^[A-Za-z0-9_-]+$/) }).safeParse(req.query);
+    if (!parsed.success)
+        return res.status(400).json({ error: parsed.error.flatten() });
+    const portfolio = await prisma_1.prisma.portfolio.findUnique({ where: { code: parsed.data.code.toUpperCase() } });
+    if (!portfolio)
+        return res.status(404).json({ error: "Portfolio code not found" });
+    res.json(portfolio);
+});
 router.post("/", (0, rbac_1.requireRole)("ADMIN"), async (req, res) => {
-    const schema = zod_1.z.object({ name: zod_1.z.string().min(1), code: zod_1.z.string().min(1) });
+    const schema = zod_1.z.object({ name: zod_1.z.string().trim().min(1).max(100), code: zod_1.z.string().trim().min(1).max(20).regex(/^[A-Za-z0-9_-]+$/).transform((code) => code.toUpperCase()) });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success)
         return res.status(400).json({ error: parsed.error.flatten() });

@@ -3,17 +3,36 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { Allocation, Project, Resource } from "../types";
 import Modal from "./Modal";
+import { canAllocateResource, canEditAllocations, useAuth } from "../context/AuthContext";
 
 interface Props {
-  resource: Resource;
+  resource?: Resource;
+  resources?: Resource[];
   mode: "allocate" | "reallocate";
   currentAllocationId?: string;
   sourceAllocation?: Allocation;
   onClose: () => void;
 }
 
-export default function AllocationModal({ resource, mode, currentAllocationId, sourceAllocation, onClose }: Props) {
+export default function AllocationModal({ resource: initialResource, resources = [], mode, currentAllocationId, sourceAllocation, onClose }: Props) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const [resourceId, setResourceId] = useState(initialResource?.id ?? "");
+  const resource = initialResource ?? resources.find((item) => item.id === resourceId);
+  const { data: allocationResources = [], isError: resourcePickerError, isFetching: resourcePickerLoading } = useQuery<Resource[]>({
+    queryKey: ["allocation-resource-picker", user?.id, user?.role, user?.authorizedPortfolioIds],
+    enabled: Boolean(user) && !initialResource,
+    queryFn: async () => {
+      const params = { page: 1, pageSize: 100 };
+      const first = (await api.get("/resources", { params })).data as { total: number; pageSize: number; resources: Resource[] };
+      if (!first.pageSize) throw new Error("Could not load the employee list.");
+      const later = await Promise.all(Array.from({ length: Math.ceil(first.total / first.pageSize) - 1 }, (_, index) => api.get("/resources", { params: { ...params, page: index + 2 } })));
+      const allResources = [...first.resources, ...later.flatMap((response) => response.data.resources as Resource[])];
+      if (allResources.length !== first.total || new Set(allResources.map((item) => item.id)).size !== first.total) throw new Error("Employee pages were incomplete.");
+      return allResources;
+    },
+  });
+  const eligibleResources = (resources.length ? resources : allocationResources).filter((item) => canAllocateResource(user, item));
   const [projectId, setProjectId] = useState("");
   const [taskId, setTaskId] = useState("");
   const [allocationPercent, setAllocationPercent] = useState(100);
@@ -28,8 +47,9 @@ export default function AllocationModal({ resource, mode, currentAllocationId, s
   const [submitting, setSubmitting] = useState(false);
 
   const { data: projects = [] } = useQuery<Project[]>({
-    queryKey: ["projects"],
-    queryFn: async () => (await api.get("/projects")).data,
+      queryKey: ["projects", user?.id, user?.role, user?.authorizedPortfolioIds],
+      enabled: Boolean(user),
+      queryFn: async () => (await api.get("/projects")).data,
   });
 
   const selectedProject = projects.find((p) => p.id === projectId);
@@ -37,6 +57,10 @@ export default function AllocationModal({ resource, mode, currentAllocationId, s
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    if (!resource || !projectId || !canEditAllocations(user, [resource.portfolioId, ...(selectedProject ? [selectedProject.portfolioId] : [])])) {
+      setError("Select an employee and project you are authorized to allocate.");
+      return;
+    }
     setConflict(null);
     setSubmitting(true);
     try {
@@ -56,10 +80,8 @@ export default function AllocationModal({ resource, mode, currentAllocationId, s
       } else {
         await api.post(`/allocations/${currentAllocationId}/reallocate`, payload);
       }
-      queryClient.invalidateQueries({ queryKey: ["resource", resource.id] });
-      queryClient.invalidateQueries({ queryKey: ["resources"] });
-      queryClient.invalidateQueries({ queryKey: ["bench"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      await Promise.all([["resource", resource.id], ["resources"], ["allocations"], ["bench"], ["dashboard"], ["resource-recommendations"]]
+        .map((queryKey) => queryClient.invalidateQueries({ queryKey })));
       onClose();
     } catch (err: any) {
       if (err.response?.status === 409) {
@@ -74,8 +96,15 @@ export default function AllocationModal({ resource, mode, currentAllocationId, s
   }
 
   return (
-    <Modal title={mode === "allocate" ? `Allocate ${resource.name}` : `Reallocate ${resource.name}`} onClose={onClose}>
+    <Modal title={mode === "allocate" ? resource ? `Allocate ${resource.name}` : "New allocation" : `Reallocate ${resource?.name ?? ""}`} onClose={onClose}>
       <form onSubmit={handleSubmit} className="space-y-3">
+        {!initialResource && <label className="label">Employee
+          <select className="input" value={resourceId} required disabled={submitting || resourcePickerLoading || resourcePickerError} onChange={(event) => { setResourceId(event.target.value); setConflict(null); setOverride(false); setError(null); }}>
+            <option value="">{resourcePickerLoading ? "Loading employees..." : "Select an employee..."}</option>
+            {eligibleResources.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.employeeId})</option>)}
+          </select>
+          {resourcePickerError && <span role="alert" className="text-sm text-red-600">Could not load employees. Close and reopen to retry.</span>}
+        </label>}
         {mode === "reallocate" && sourceAllocation && (
           <div className="rounded-md bg-slate-50 border border-slate-200 p-3 text-sm text-slate-600">
             Reallocating from <span className="font-medium text-slate-800">{sourceAllocation.project?.name || "selected project"}</span>
@@ -169,7 +198,7 @@ export default function AllocationModal({ resource, mode, currentAllocationId, s
           <button type="button" className="btn-secondary" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className="btn-primary" disabled={submitting || !projectId}>
+          <button type="submit" className="btn-primary" disabled={submitting || !projectId || !resource || (!initialResource && (resourcePickerLoading || resourcePickerError))}>
             {submitting ? "Submitting..." : mode === "allocate" ? "Allocate" : "Reallocate"}
           </button>
         </div>

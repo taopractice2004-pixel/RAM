@@ -1,279 +1,278 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.validateRow = void 0;
+exports.assertQuarantineAccess = assertQuarantineAccess;
+exports.quarantineErrors = quarantineErrors;
+exports.mutateQuarantine = mutateQuarantine;
+exports.parseImportCsvManifest = parseImportCsvManifest;
 exports.parseImportCsv = parseImportCsv;
+exports.retryImportTransaction = retryImportTransaction;
+exports.summarizeImport = summarizeImport;
 exports.runImport = runImport;
+const node_crypto_1 = require("node:crypto");
 const sync_1 = require("csv-parse/sync");
+const client_1 = require("@prisma/client");
 const prisma_1 = require("../prisma");
 const audit_1 = require("../utils/audit");
+const rbac_1 = require("../middleware/rbac");
+const resourceExcelPreview_1 = require("../utils/resourceExcelPreview");
+async function assertQuarantineAccess(tx, record, actor, proposed) {
+    const row = (0, resourceExcelPreview_1.normalizeImportRow)((proposed ?? record.rawData));
+    const current = row.employeeId ? await tx.resource.findUnique({ where: { employeeId: row.employeeId } }) : null;
+    const target = row.portfolioCode ? await tx.portfolio.findUnique({ where: { code: row.portfolioCode } }) : current ? await tx.portfolio.findUnique({ where: { id: current.portfolioId } }) : null;
+    if ((current && !(0, rbac_1.isAuthorizedForPortfolio)(actor, current.portfolioId)) || (target && !(0, rbac_1.isAuthorizedForPortfolio)(actor, target.id)))
+        throw new Error("Record unavailable or outside authorized scope");
+    const batch = await tx.importBatch.findUniqueOrThrow({ where: { id: record.batchId } });
+    if (!target && actor.role !== "ADMIN" && !(actor.role === "RMG" && batch.actorId === actor.id))
+        throw new Error("Record unavailable or outside authorized scope");
+    return { row, current, target, batch, sensitive: actor.role === "ADMIN" || actor.role === "HR" || Boolean(target && (0, rbac_1.isAuthorizedForPortfolio)(actor, target.id)) };
+}
+function quarantineErrors(value) {
+    if (Array.isArray(value))
+        return value.flatMap(quarantineErrors);
+    if (typeof value === "string")
+        return [value];
+    if (value && typeof value === "object")
+        return Object.entries(value).flatMap(([key, item]) => quarantineErrors(item).map((text) => `${key}: ${text}`));
+    return [];
+}
+async function mutateQuarantine(recordId, actor, input) {
+    return retryImportTransaction(() => prisma_1.prisma.$transaction(async (tx) => {
+        const record = await tx.importRecord.findUniqueOrThrow({ where: { id: recordId } });
+        const access = await assertQuarantineAccess(tx, record, actor);
+        if (record.version !== input.expectedVersion)
+            throw new Error("Stale version; reload before editing");
+        if (!["QUARANTINED", "FAILED"].includes(record.status))
+            throw new Error("Only quarantined or failed rows can be changed");
+        if (input.action === "review" && !["ADMIN", "RMG"].includes(actor.role))
+            throw new Error("RMG owns review");
+        const values = input.action === "save" ? { ...(0, resourceExcelPreview_1.normalizeImportRow)(record.rawData), ...(0, resourceExcelPreview_1.normalizeImportRow)(input.values ?? {}) } : record.rawData;
+        if (input.action === "save" && input.values && !access.sensitive)
+            throw new Error("Sensitive values can only be edited within an authorized portfolio");
+        const { row, current, target } = await assertQuarantineAccess(tx, record, actor, values);
+        const errors = (0, resourceExcelPreview_1.validateImportRow)(row, !current);
+        if (!target)
+            errors.push("Portfolio code was not found");
+        if ((current && !(0, rbac_1.isAuthorizedForPortfolio)(actor, current.portfolioId)) || (target && !(0, rbac_1.isAuthorizedForPortfolio)(actor, target.id)))
+            errors.push("Not authorized for current or target portfolio");
+        if (await tx.importRecord.count({ where: { batchId: record.batchId, id: { not: record.id }, employeeId: row.employeeId || "UNKNOWN", status: { in: ["PENDING", "QUARANTINED", "FAILED"] } } }))
+            errors.push("Resolve or discard duplicate siblings before release");
+        const data = { version: { increment: 1 }, updatedAt: new Date(), updatedBy: actor.id };
+        if (input.action === "save")
+            Object.assign(data, { rawData: values, employeeId: row.employeeId || "UNKNOWN", errors: client_1.Prisma.DbNull, validation: client_1.Prisma.DbNull, review: client_1.Prisma.DbNull });
+        if (input.action === "validate")
+            Object.assign(data, { errors, validation: { valid: !errors.length, errors, version: record.version, at: new Date().toISOString(), actorId: actor.id, resourceVersion: current?.updatedAt.toISOString() ?? null } });
+        if (input.action === "review")
+            Object.assign(data, { review: { reviewed: input.reviewed ?? true, actorId: actor.id, at: new Date().toISOString() }, validation: client_1.Prisma.DbNull });
+        if (input.action === "discard")
+            data.status = "DISCARDED";
+        const updated = await tx.importRecord.update({ where: { id: record.id }, data });
+        const safeDiff = input.action === "save" ? Object.fromEntries(Object.keys(input.values ?? {}).map((field) => [field, { before: record.rawData[field] ?? null, after: values[field] ?? null }])) : undefined;
+        await (0, audit_1.writeAudit)({ actorId: actor.id, entityType: "ImportRecord", entityId: record.id, action: `QUARANTINE_${input.action.toUpperCase()}`, before: input.action === "save" ? { version: record.version, fields: safeDiff } : undefined, after: { version: updated.version, fields: input.action === "save" ? safeDiff : Object.keys(input.values ?? {}), status: updated.status } }, tx);
+        await summarizeImport(tx, record.batchId);
+        return { id: updated.id, version: updated.version, status: updated.status };
+    }, { isolationLevel: "Serializable" }));
+}
+const validateRow = (row) => (0, resourceExcelPreview_1.validateImportRow)((0, resourceExcelPreview_1.normalizeImportRow)(row), true);
+exports.validateRow = validateRow;
+function parseImportCsvManifest(csvText) {
+    const entries = (0, sync_1.parse)(csvText, { columns: false, skip_empty_lines: false, relax_column_count: true, bom: true, info: true });
+    const headerIndex = entries.findIndex(({ record }) => record.some((value) => value.trim()));
+    if (headerIndex < 0)
+        throw new Error("CSV has no header");
+    const headers = entries[headerIndex].record.map((value) => value.trim());
+    if (new Set(headers).size !== headers.length)
+        throw new Error("Duplicate CSV headings");
+    const data = entries.slice(headerIndex + 1);
+    if (data.length > 5000)
+        throw new Error("Import exceeds 5,000 rows");
+    const nonblank = data.filter(({ record }) => record.some((value) => value.trim()));
+    const manifest = nonblank.map(({ record, info }) => {
+        if (record.length > headers.length)
+            throw new Error("CSV row has more values than headings");
+        const source = Object.fromEntries(headers.map((header, index) => [header, record[index] ?? ""]));
+        return { rowNumber: info.lines, source: (0, resourceExcelPreview_1.redactImportSource)(source), mapped: (0, resourceExcelPreview_1.normalizeImportRow)(source), selected: true };
+    });
+    return { rows: manifest.map((row) => row.mapped), manifest, blankRowCount: data.length - nonblank.length };
+}
 function parseImportCsv(csvText) {
-    return (0, sync_1.parse)(csvText, { columns: true, skip_empty_lines: true, trim: true });
+    return parseImportCsvManifest(csvText).rows;
 }
-const REQUIRED_FIELDS = [
-    "employeeId",
-    "name",
-    "location",
-    "costRate",
-    "portfolioCode",
-    "skills",
-    "managerName",
-    "designation",
-    "dateOfJoining",
-    "totalYoe",
-];
-// An HRMIS-reported exit only needs to identify the resource, not its full profile.
-const REQUIRED_FIELDS_FOR_TERMINATE = ["employeeId"];
-function validateRow(row) {
-    const errors = [];
-    const isTerminate = (row.action ?? "").toUpperCase() === "TERMINATE";
-    const requiredFields = isTerminate ? REQUIRED_FIELDS_FOR_TERMINATE : REQUIRED_FIELDS;
-    for (const field of requiredFields) {
-        if (!row[field] || String(row[field]).trim() === "") {
-            errors.push(`Missing required field: ${field}`);
+async function retryImportTransaction(operation) {
+    for (let attempt = 0;; attempt++) {
+        try {
+            return await operation();
+        }
+        catch (error) {
+            if (attempt >= 3 || !(error instanceof client_1.Prisma.PrismaClientKnownRequestError) || error.code !== "P2034")
+                throw error;
         }
     }
-    if (!isTerminate && row.costRate && Number.isNaN(Number(row.costRate))) {
-        errors.push(`costRate is not numeric: ${row.costRate}`);
-    }
-    if (!isTerminate && row.totalYoe && Number.isNaN(Number(row.totalYoe))) {
-        errors.push(`totalYoe is not numeric: ${row.totalYoe}`);
-    }
-    if (!isTerminate && row.taoExperience && Number.isNaN(Number(row.taoExperience))) {
-        errors.push(`taoExperience is not numeric: ${row.taoExperience}`);
-    }
-    if (!isTerminate && row.priorExperienceYears && Number.isNaN(Number(row.priorExperienceYears))) {
-        errors.push(`priorExperienceYears is not numeric: ${row.priorExperienceYears}`);
-    }
-    if (!isTerminate && row.dateOfJoining) {
-        const doj = new Date(row.dateOfJoining);
-        if (Number.isNaN(doj.getTime())) {
-            errors.push(`dateOfJoining is invalid: ${row.dateOfJoining}`);
+}
+async function summarizeImport(tx, batchId) {
+    await tx.importBatch.update({ where: { id: batchId }, data: { id: batchId } });
+    const outcomes = await tx.importRecord.groupBy({ by: ["status"], where: { batchId }, _count: true });
+    const totals = Object.fromEntries(outcomes.map((outcome) => [outcome.status, outcome._count]));
+    const completed = await tx.importBatch.update({ where: { id: batchId }, data: { status: totals.PENDING ? "RUNNING" : totals.FAILED ? "FAILED" : "COMPLETED", createdCount: totals.CREATED || 0, updatedCount: totals.UPDATED || 0, quarantinedCount: totals.QUARANTINED || 0, completedAt: totals.PENDING ? null : new Date() } });
+    return { ...completed, totals };
+}
+async function runImport(rows, source, actorId, options = {}) {
+    const actor = actorId ? await prisma_1.prisma.user.findUnique({ where: { id: actorId }, include: { portfolioAuthorizations: { where: { isActive: true } } } }) : null;
+    if (actorId && (!actor?.active || !["ADMIN", "RMG", "HR"].includes(actor.role)))
+        throw new Error("Not authorized to import resources");
+    const authorized = (portfolioId) => !actorId || Boolean(actor && (0, rbac_1.isAuthorizedForPortfolio)({ role: actor.role, authorizedPortfolioIds: actor.portfolioAuthorizations.map((grant) => grant.portfolioId) }, portfolioId));
+    const normalized = rows.map(resourceExcelPreview_1.normalizeImportRow);
+    const counts = new Map();
+    for (const row of normalized)
+        if (row.employeeId)
+            counts.set(row.employeeId, (counts.get(row.employeeId) || 0) + 1);
+    if (source === "EXCEL_WORKBOOK" && (!options.expectedVersions || !options.idempotencyKey))
+        throw new Error("Preview versions and idempotency key are required");
+    const digest = (0, node_crypto_1.createHash)("sha256").update(JSON.stringify({ normalized, source, actorId, expectedVersions: options.expectedVersions, manifest: options.manifest, provenance: options.provenance })).digest("hex");
+    let batch = options.quarantinedRecordId ? null : options.idempotencyKey ? await prisma_1.prisma.importBatch.findUnique({ where: { idempotencyKey: options.idempotencyKey } }) : null;
+    if (batch && batch.digest !== digest)
+        throw new Error("Idempotency key payload mismatch");
+    if (!batch && !options.quarantinedRecordId) {
+        try {
+            batch = await prisma_1.prisma.importBatch.create({ data: { source, status: "RUNNING", actorId, digest, idempotencyKey: options.idempotencyKey, provenance: options.provenance, records: { create: normalized.map((row, index) => ({ employeeId: row.employeeId || "UNKNOWN", rawData: row, originalMapped: (0, resourceExcelPreview_1.redactImportSource)(options.manifest?.[index].mapped ?? row), originalSource: options.manifest?.[index] ? (0, resourceExcelPreview_1.redactImportSource)(options.manifest[index].source) : client_1.Prisma.JsonNull, rowNumber: options.manifest?.[index].rowNumber ?? null, status: "PENDING", updatedBy: actorId })) } } });
         }
-        else if (row.totalYoe || row.taoExperience) {
-            const now = new Date();
-            const derivedTaoYears = Math.max(0, Math.round((((now.getTime() - doj.getTime()) / (1000 * 60 * 60 * 24 * 365.25)) * 10)) / 10);
-            if (row.taoExperience && Math.abs(Number(row.taoExperience) - derivedTaoYears) > 0.2) {
-                errors.push(`taoExperience does not reconcile with DOJ: supplied ${row.taoExperience}, derived ${derivedTaoYears}`);
-            }
-            if (row.totalYoe && Number(row.totalYoe) < derivedTaoYears) {
-                errors.push(`totalYoe cannot be less than TAO experience derived from DOJ (${derivedTaoYears})`);
-            }
+        catch (error) {
+            if (!options.idempotencyKey)
+                throw error;
+            batch = await prisma_1.prisma.importBatch.findUnique({ where: { idempotencyKey: options.idempotencyKey } });
+            if (!batch || batch.digest !== digest)
+                throw error;
         }
     }
-    if (!isTerminate && row.gender) {
-        const normalizedGender = row.gender.trim().toUpperCase();
-        if (!["FEMALE", "MALE", "OTHER", "UNDISCLOSED"].includes(normalizedGender)) {
-            errors.push(`gender is invalid: ${row.gender}`);
-        }
-    }
-    return errors;
-}
-function parseSkills(skillsStr) {
-    if (!skillsStr)
-        return [];
-    return skillsStr
-        .split(";")
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .map((entry) => {
-        const [name, proficiency, years] = entry.split(":").map((p) => p.trim());
-        return { name, proficiency: Number(proficiency) || 3, yearsExperience: Number(years) || 0 };
-    });
-}
-function parseCertifications(certStr) {
-    if (!certStr)
-        return [];
-    return certStr
-        .split(";")
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .map((entry) => {
-        const [name, issuer, issueDate] = entry.split(":").map((p) => p.trim());
-        return { name, issuer: issuer || null, issueDate: issueDate ? new Date(issueDate) : null };
-    });
-}
-async function upsertCertifications(resourceId, certifications) {
-    for (const c of certifications) {
-        await prisma_1.prisma.certification.upsert({
-            where: { resourceId_name: { resourceId, name: c.name } },
-            create: { resourceId, name: c.name, issuer: c.issuer, issueDate: c.issueDate },
-            update: { issuer: c.issuer, issueDate: c.issueDate },
-        });
-    }
-}
-/**
- * FR-1.4 / FR-1.5 / Workflow 7.1: import new/updated active-resource records from
- * an HRMIS feed or manual input sheet. Valid rows create/update Resource records;
- * invalid rows are quarantined (not activated) with the specific error captured.
- * Rows flagged as HRMIS-reported exits are routed to a pending termination request
- * rather than silently deactivated (cross-checked per Section 7.5).
- */
-async function runImport(rows, source, actorId) {
-    const batch = await prisma_1.prisma.importBatch.create({ data: { source, status: "RUNNING" } });
-    let created = 0;
-    let updated = 0;
-    let quarantined = 0;
-    for (const row of rows) {
-        const errors = validateRow(row);
-        if (errors.length > 0) {
-            await prisma_1.prisma.importRecord.create({
-                data: {
-                    batchId: batch.id,
-                    employeeId: row.employeeId ?? "UNKNOWN",
-                    rawData: row,
-                    status: "QUARANTINED",
-                    errors: errors,
-                },
-            });
-            quarantined++;
+    const records = options.quarantinedRecordId ? [await prisma_1.prisma.importRecord.findUniqueOrThrow({ where: { id: options.quarantinedRecordId } })] : await prisma_1.prisma.importRecord.findMany({ where: { batchId: batch.id }, orderBy: { rowNumber: "asc" } });
+    const batchId = records[0]?.batchId ?? batch.id;
+    for (const [index, record] of records.entries()) {
+        if (!["PENDING", "FAILED", ...(options.quarantinedRecordId ? ["QUARANTINED"] : [])].includes(record.status)) {
+            if (options.quarantinedRecordId && JSON.stringify((0, resourceExcelPreview_1.normalizeImportRow)(record.rawData)) !== JSON.stringify(normalized[0]))
+                throw new Error("Record already processed with different values");
             continue;
         }
-        if ((row.action ?? "").toUpperCase() === "TERMINATE") {
-            const existingResource = await prisma_1.prisma.resource.findUnique({ where: { employeeId: row.employeeId } });
-            if (existingResource && existingResource.status !== "TERMINATED") {
-                // Avoid stacking duplicate requests if the HRMIS keeps reporting the same exit
-                // on repeated daily syncs before HR has acted on the first one.
-                const alreadyPending = await prisma_1.prisma.terminationRequest.findFirst({
-                    where: { resourceId: existingResource.id, status: "PENDING_HR_APPROVAL" },
-                });
-                if (!alreadyPending) {
-                    const systemUser = await prisma_1.prisma.user.findFirst({ where: { role: "RMG" } });
-                    await prisma_1.prisma.terminationRequest.create({
-                        data: {
-                            resourceId: existingResource.id,
-                            initiatedById: actorId ?? systemUser?.id ?? existingResource.id,
-                            reasonCode: "HRMIS_REPORTED_EXIT",
-                            reason: "Exit reported by HRMIS during daily sync",
-                            status: "PENDING_HR_APPROVAL",
-                        },
-                    });
+        try {
+            await retryImportTransaction(() => prisma_1.prisma.$transaction(async (tx) => {
+                await tx.importBatch.update({ where: { id: batchId }, data: { id: batchId } });
+                const latest = await tx.importRecord.findUniqueOrThrow({ where: { id: record.id } });
+                if (options.expectedVersion !== undefined && latest.version !== options.expectedVersion)
+                    throw new Error("Record changed during release; reload before editing");
+                if (options.quarantinedRecordId && actor)
+                    await assertQuarantineAccess(tx, latest, { id: actor.id, role: actor.role, authorizedPortfolioIds: actor.portfolioAuthorizations.map((grant) => grant.portfolioId) });
+                if (latest.status !== record.status || latest.updatedAt?.getTime() !== record.updatedAt?.getTime()) {
+                    if (options.quarantinedRecordId && JSON.stringify((0, resourceExcelPreview_1.normalizeImportRow)(latest.rawData)) !== JSON.stringify(normalized[0]))
+                        throw new Error("Record changed during release; reload before editing");
+                    return;
+                }
+                const claimed = await tx.importRecord.updateMany({ where: { id: record.id, status: record.status, updatedAt: record.updatedAt }, data: { updatedAt: new Date(), updatedBy: actorId, version: { increment: 1 }, validation: client_1.Prisma.DbNull } });
+                if (!claimed.count)
+                    return;
+                const original = record;
+                const row = options.quarantinedRecordId ? normalized[0] : (0, resourceExcelPreview_1.normalizeImportRow)(record.rawData);
+                const current = row.employeeId ? await tx.resource.findUnique({ where: { employeeId: row.employeeId } }) : null;
+                const portfolio = row.portfolioCode ? await tx.portfolio.findUnique({ where: { code: row.portfolioCode } }) : current ? await tx.portfolio.findUnique({ where: { id: current.portfolioId } }) : null;
+                const errors = (0, resourceExcelPreview_1.validateImportRow)(row, !current);
+                if (options.expectedVersions && options.expectedVersions[row.employeeId || ""] !== (current?.updatedAt.toISOString() ?? null))
+                    errors.push("Resource changed since preview; review again");
+                if (row.employeeId && (counts.get(row.employeeId) || 0) > 1)
+                    errors.push("Duplicate employeeId in import");
+                if (options.quarantinedRecordId && await tx.importRecord.count({ where: { batchId, id: { not: record.id }, employeeId: row.employeeId, status: { in: ["PENDING", "QUARANTINED", "FAILED"] } } }))
+                    errors.push("Resolve or discard duplicate siblings before release");
+                if (!portfolio)
+                    errors.push("Portfolio code was not found");
+                if ((current && !authorized(current.portfolioId)) || (portfolio && !authorized(portfolio.id)))
+                    errors.push("Not authorized for current or target portfolio");
+                if (errors.length) {
+                    const data = { employeeId: row.employeeId || "UNKNOWN", rawData: row, errors, status: "QUARANTINED" };
+                    if (original)
+                        await tx.importRecord.update({ where: { id: original.id }, data });
+                    else
+                        await tx.importRecord.create({ data: { ...data, batchId } });
+                    await (0, audit_1.writeAudit)({ actorId: actorId ?? null, action: "QUARANTINE_IMPORT_RECORD", entityType: "ImportRecord", entityId: record.id, after: { errors } }, tx);
+                    await summarizeImport(tx, batchId);
+                    return;
+                }
+                if (!options.quarantinedRecordId && options.manifest?.[index].selected === false) {
+                    await tx.importRecord.update({ where: { id: record.id }, data: { status: "SKIPPED", errors: client_1.Prisma.JsonNull } });
+                    await summarizeImport(tx, batchId);
+                    return;
+                }
+                const dateOfJoining = row.dateOfJoining ? new Date(row.dateOfJoining) : current?.dateOfJoining;
+                const tenure = dateOfJoining ? Math.max(0, (Date.now() - dateOfJoining.getTime()) / (365.25 * 86400000)) : 0;
+                const data = {
+                    name: row.name ?? current.name,
+                    location: row.location ?? current.location,
+                    costRate: row.costRate !== undefined ? Number(row.costRate) : current.costRate,
+                    portfolioId: portfolio.id,
+                    gender: (row.gender?.toUpperCase() ?? current?.gender ?? "UNDISCLOSED"),
+                    country: row.country ?? current?.country,
+                    workLocation: row.workLocation ?? current?.workLocation ?? row.location,
+                    willingToRelocate: row.willingToRelocate ? ["yes", "true", "1"].includes(row.willingToRelocate.toLowerCase()) : current?.willingToRelocate ?? false,
+                    currency: row.currency ?? current?.currency ?? "USD",
+                    managerName: row.managerName ?? current?.managerName,
+                    designation: row.designation ?? current?.designation,
+                    subCategory: row.subCategory ?? current?.subCategory,
+                    dateOfJoining,
+                    priorExperienceYears: row.priorExperienceYears !== undefined ? Number(row.priorExperienceYears) : row.totalYoe !== undefined ? Math.max(0, Number(row.totalYoe) - tenure) : current?.priorExperienceYears ?? 0,
+                };
+                const resource = current ? await tx.resource.update({ where: { id: current.id }, data }) : await tx.resource.create({ data: { ...data, employeeId: row.employeeId, sourceSystem: source } });
+                for (const entry of row.skills?.split(";").filter((part) => part.trim()) ?? []) {
+                    const [name, proficiency, years] = entry.split(":").map((part) => part.trim());
+                    const skill = await tx.skill.upsert({ where: { name }, create: { name }, update: {} });
+                    const values = { proficiency: proficiency ? Number(proficiency) : 3, yearsExperience: years ? Number(years) : 0 };
+                    await tx.resourceSkill.upsert({ where: { resourceId_skillId: { resourceId: resource.id, skillId: skill.id } }, create: { resourceId: resource.id, skillId: skill.id, ...values }, update: values });
+                }
+                for (const entry of row.certifications?.split(";").filter((part) => part.trim()) ?? []) {
+                    const [name, issuer, date] = entry.split(":").map((part) => part.trim());
+                    const values = { issuer: issuer || undefined, issueDate: date ? new Date(date) : undefined };
+                    await tx.certification.upsert({ where: { resourceId_name: { resourceId: resource.id, name } }, create: { resourceId: resource.id, name, ...values }, update: values });
+                }
+                const recordData = { employeeId: row.employeeId, rawData: row, status: current ? "UPDATED" : "CREATED", resourceId: resource.id, errors: client_1.Prisma.JsonNull };
+                if (original)
+                    await tx.importRecord.update({ where: { id: original.id }, data: recordData });
+                else
+                    await tx.importRecord.create({ data: { batchId, ...recordData } });
+                await (0, audit_1.writeAudit)({ actorId: actorId ?? null, action: options.quarantinedRecordId ? "REVALIDATE_AND_RELEASE_IMPORT" : "IMPORT_RESOURCE", entityType: "ImportRecord", entityId: record.id, after: { resourceId: resource.id, status: recordData.status } }, tx);
+                await summarizeImport(tx, batchId);
+            }, { isolationLevel: client_1.Prisma.TransactionIsolationLevel.Serializable, timeout: 15000 }));
+        }
+        catch (error) {
+            if (error instanceof Error && error.message === "Record changed during release; reload before editing")
+                throw error;
+            if (error instanceof client_1.Prisma.PrismaClientKnownRequestError && error.code === "P2034")
+                continue;
+            await retryImportTransaction(() => prisma_1.prisma.$transaction(async (tx) => {
+                await tx.importBatch.update({ where: { id: batchId }, data: { id: batchId } });
+                await tx.importRecord.updateMany({ where: { id: record.id, status: record.status, updatedAt: record.updatedAt }, data: { status: "FAILED", rawData: options.quarantinedRecordId ? normalized[0] : undefined, errors: ["Row transaction failed; retry the same request"], updatedBy: actorId, updatedAt: new Date() } });
+                await summarizeImport(tx, batchId);
+            }, { isolationLevel: client_1.Prisma.TransactionIsolationLevel.Serializable }));
+        }
+    }
+    const completed = await retryImportTransaction(() => prisma_1.prisma.$transaction((tx) => summarizeImport(tx, batchId), { isolationLevel: client_1.Prisma.TransactionIsolationLevel.Serializable }));
+    const { totals } = completed;
+    let notificationPending = false;
+    try {
+        await retryImportTransaction(() => prisma_1.prisma.$transaction(async (tx) => {
+            await tx.importBatch.update({ where: { id: batchId }, data: { id: batchId } });
+            const quarantineCount = await tx.importRecord.count({ where: { batchId, status: { in: ["QUARANTINED", "FAILED", "PENDING"] } } });
+            if (quarantineCount) {
+                const recipients = await tx.user.findMany({ where: { active: true, OR: [{ role: "RMG" }, ...(actorId ? [{ id: actorId }] : [])] }, select: { id: true } });
+                for (const { id } of recipients) {
+                    const where = { userId: id, relatedEntityId: batchId, type: "IMPORT_QUARANTINE" };
+                    const data = { message: `${quarantineCount} records need review in import batch ${batchId}.`, resolvedAt: null };
+                    if (await tx.notification.findFirst({ where }))
+                        await tx.notification.updateMany({ where, data });
+                    else
+                        await tx.notification.create({ data: { ...where, ...data, relatedEntityType: "ImportBatch" } });
                 }
             }
-            await prisma_1.prisma.importRecord.create({
-                data: {
-                    batchId: batch.id,
-                    employeeId: row.employeeId,
-                    rawData: row,
-                    status: "UPDATED",
-                    resourceId: existingResource?.id,
-                },
-            });
-            updated++;
-            continue;
-        }
-        const portfolio = await prisma_1.prisma.portfolio.findUnique({ where: { code: row.portfolioCode } });
-        if (!portfolio) {
-            await prisma_1.prisma.importRecord.create({
-                data: {
-                    batchId: batch.id,
-                    employeeId: row.employeeId,
-                    rawData: row,
-                    status: "QUARANTINED",
-                    errors: [`Unknown portfolio/department code: ${row.portfolioCode}`],
-                },
-            });
-            quarantined++;
-            continue;
-        }
-        const skills = parseSkills(row.skills);
-        const certifications = parseCertifications(row.certifications);
-        const dateOfJoining = row.dateOfJoining ? new Date(row.dateOfJoining) : null;
-        const gender = ((row.gender ?? "UNDISCLOSED").trim().toUpperCase() || "UNDISCLOSED");
-        const derivedTaoYears = dateOfJoining
-            ? Math.max(0, Math.round((((Date.now() - dateOfJoining.getTime()) / (1000 * 60 * 60 * 24 * 365.25)) * 10)) / 10)
-            : 0;
-        const priorExperienceYears = row.priorExperienceYears
-            ? Number(row.priorExperienceYears)
-            : row.totalYoe
-                ? Math.max(0, Math.round((Number(row.totalYoe) - derivedTaoYears) * 10) / 10)
-                : 0;
-        const existing = await prisma_1.prisma.resource.findUnique({ where: { employeeId: row.employeeId } });
-        if (!existing) {
-            const resource = await prisma_1.prisma.resource.create({
-                data: {
-                    employeeId: row.employeeId,
-                    name: row.name,
-                    email: row.email,
-                    gender,
-                    country: row.country || null,
-                    workLocation: row.workLocation || row.location,
-                    location: row.location,
-                    willingToRelocate: (row.willingToRelocate ?? "false").toLowerCase() === "true",
-                    costRate: Number(row.costRate),
-                    currency: row.currency || "USD",
-                    portfolioId: portfolio.id,
-                    managerName: row.managerName,
-                    designation: row.designation,
-                    subCategory: row.subCategory || null,
-                    dateOfJoining,
-                    priorExperienceYears,
-                    status: "AVAILABLE",
-                    sourceSystem: source,
-                },
-            });
-            for (const s of skills) {
-                const skill = await prisma_1.prisma.skill.upsert({ where: { name: s.name }, create: { name: s.name }, update: {} });
-                await prisma_1.prisma.resourceSkill.create({
-                    data: { resourceId: resource.id, skillId: skill.id, proficiency: s.proficiency, yearsExperience: s.yearsExperience },
-                });
-            }
-            await upsertCertifications(resource.id, certifications);
-            await prisma_1.prisma.importRecord.create({
-                data: { batchId: batch.id, employeeId: row.employeeId, rawData: row, status: "CREATED", resourceId: resource.id },
-            });
-            created++;
-        }
-        else {
-            const resource = await prisma_1.prisma.resource.update({
-                where: { id: existing.id },
-                data: {
-                    name: row.name,
-                    email: row.email,
-                    gender,
-                    country: row.country || null,
-                    workLocation: row.workLocation || row.location,
-                    location: row.location,
-                    willingToRelocate: (row.willingToRelocate ?? "false").toLowerCase() === "true",
-                    costRate: Number(row.costRate),
-                    currency: row.currency || "USD",
-                    portfolioId: portfolio.id,
-                    managerName: row.managerName,
-                    designation: row.designation,
-                    subCategory: row.subCategory || null,
-                    dateOfJoining,
-                    priorExperienceYears,
-                },
-            });
-            for (const s of skills) {
-                const skill = await prisma_1.prisma.skill.upsert({ where: { name: s.name }, create: { name: s.name }, update: {} });
-                await prisma_1.prisma.resourceSkill.upsert({
-                    where: { resourceId_skillId: { resourceId: resource.id, skillId: skill.id } },
-                    create: { resourceId: resource.id, skillId: skill.id, proficiency: s.proficiency, yearsExperience: s.yearsExperience },
-                    update: { proficiency: s.proficiency, yearsExperience: s.yearsExperience },
-                });
-            }
-            await upsertCertifications(resource.id, certifications);
-            await prisma_1.prisma.importRecord.create({
-                data: { batchId: batch.id, employeeId: row.employeeId, rawData: row, status: "UPDATED", resourceId: resource.id },
-            });
-            updated++;
-        }
+            else
+                await tx.notification.updateMany({ where: { relatedEntityId: batchId, type: "IMPORT_QUARANTINE" }, data: { resolvedAt: new Date() } });
+        }, { isolationLevel: client_1.Prisma.TransactionIsolationLevel.Serializable }));
     }
-    const completed = await prisma_1.prisma.importBatch.update({
-        where: { id: batch.id },
-        data: {
-            status: "COMPLETED",
-            createdCount: created,
-            updatedCount: updated,
-            quarantinedCount: quarantined,
-            completedAt: new Date(),
-        },
-    });
-    await (0, audit_1.writeAudit)({
-        actorId: actorId ?? null,
-        action: "RUN_IMPORT",
-        entityType: "ImportBatch",
-        entityId: batch.id,
-        after: { source, created, updated, quarantined },
-    });
-    return completed;
+    catch {
+        notificationPending = true;
+    }
+    return { ...completed, totals, notificationPending };
 }

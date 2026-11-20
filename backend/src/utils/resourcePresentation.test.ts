@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { deriveBenchSubCategory } from "./resourcePresentation";
+import { deriveBenchAgingDays, deriveBenchSubCategory } from "./resourcePresentation";
 
 const now = new Date("2026-10-21T00:00:00Z");
 const resource = (status: string, days: number, subCategory: string | null = null) => ({
@@ -10,7 +10,11 @@ const resource = (status: string, days: number, subCategory: string | null = nul
   allocations: [],
 });
 
-for (const status of ["BENCH_TRUE", "BENCH_COMMITTED", "AVAILABLE"]) {
+test("bench ageing requires an explicit bench start date", () => {
+  assert.equal(deriveBenchAgingDays({ benchSince: null }, now), null);
+});
+
+for (const status of ["BENCH_TRUE", "BENCH_COMMITTED"]) {
   for (const days of [59, 60, 61]) {
     test(`${status} subcategory at ${days} days preserves lifecycle status`, () => {
       const input = resource(status, days);

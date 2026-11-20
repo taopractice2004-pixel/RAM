@@ -12,8 +12,7 @@ This file records business rules and intentional deferrals introduced during the
 - `Sub Category` is hybrid: partly manual and partly derived.
 - `Corporate Bench` means internal non-client work.
 - `Internal Project` means work in the AI/ML internal portfolio.
-- New hires in `AVAILABLE` age from `DOJ`.
-- Unassigned resources can auto-move into bench handling after 60 days from `DOJ`.
+- New imports start in `BENCH_TRUE`; `DOJ` is used as `benchSince` when present.
 - Resource lifecycle must never appear as `CLOSED`; only historical allocations may be closed.
 - Rejected forced terminations must leave the resource on bench, not in a dead-end state.
 - ML resources remain visible but unavailable, non-allocatable, and non-terminatable.

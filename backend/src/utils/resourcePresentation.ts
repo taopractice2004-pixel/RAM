@@ -16,8 +16,8 @@ export function deriveTotalYearsExperience(priorExperienceYears: number | null |
   return roundOneDecimal((priorExperienceYears ?? 0) + deriveTaoExperienceYears(dateOfJoining, now));
 }
 
-export function deriveBenchAgingDays(resource: Pick<Resource, "benchSince" | "dateOfJoining" | "status">, now: Date = new Date()) {
-  const anchor = resource.benchSince ?? (resource.status === "AVAILABLE" ? resource.dateOfJoining : null);
+export function deriveBenchAgingDays(resource: Pick<Resource, "benchSince">, now: Date = new Date()) {
+  const anchor = resource.benchSince;
   if (!anchor) return null;
   return Math.max(0, Math.floor((now.getTime() - anchor.getTime()) / MS_PER_DAY));
 }
@@ -57,11 +57,9 @@ export function deriveBenchSubCategory(resource: {
   if (project?.billingDelayed) return "Billing Delay";
   if (category === "proactive hire") return "Proactive Hire";
   if (category === "corporate bench") return "Corporate Bench";
-  if (["BENCH_TRUE", "BENCH_COMMITTED", "AVAILABLE"].includes(resource.status)) {
+  if (["BENCH_TRUE", "BENCH_COMMITTED"].includes(resource.status)) {
     const days = deriveBenchAgingDays({
-      status: resource.status as Resource["status"],
       benchSince: resource.benchSince ?? null,
-      dateOfJoining: resource.dateOfJoining ?? null,
     }, now);
     if (days !== null) return days >= 60 ? "Corporate Bench" : "Bench (Allocated <60)";
     return resource.subCategory;
