@@ -173,7 +173,9 @@ export async function runImport(rows: RawImportRow[], source: string, actorId?: 
           dateOfJoining,
           priorExperienceYears: row.priorExperienceYears !== undefined ? Number(row.priorExperienceYears) : row.totalYoe !== undefined ? Math.max(0, Number(row.totalYoe) - tenure) : current?.priorExperienceYears ?? 0,
         };
-        const resource = current ? await tx.resource.update({ where: { id: current.id }, data }) : await tx.resource.create({ data: { ...data, employeeId: row.employeeId!, sourceSystem: source } });
+        const resource = current
+          ? await tx.resource.update({ where: { id: current.id }, data })
+          : await tx.resource.create({ data: { ...data, employeeId: row.employeeId!, sourceSystem: source, status: "BENCH_TRUE", benchSince: dateOfJoining ?? new Date() } });
         for (const entry of row.skills?.split(";").filter((part) => part.trim()) ?? []) {
           const [name, proficiency, years] = entry.split(":").map((part) => part.trim());
           const skill = await tx.skill.upsert({ where: { name }, create: { name }, update: {} });

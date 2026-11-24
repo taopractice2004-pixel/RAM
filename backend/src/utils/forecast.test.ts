@@ -7,7 +7,7 @@ const startDate = new Date("2026-10-12T00:00:00Z");
 const resources = [
   {
     id: "r1",
-    status: "AVAILABLE",
+    status: "BENCH_TRUE",
     allocations: [
       { status: "ACTIVE", startDate: "2026-10-12", endDate: "2026-10-18", allocationPercent: 50 },
       { status: "SCHEDULED", startDate: "2026-10-19", endDate: "2026-10-25", allocationPercent: 30 },

@@ -156,8 +156,7 @@ export function scoreResourceMatch(
 }
 
 export function getRecommendationStatusWeight(status: string) {
-  return status === "AVAILABLE" ? 3
-    : status === "BENCH_TRUE" ? 2
+  return status === "BENCH_TRUE" ? 2
       : status === "BENCH_COMMITTED" ? 1
         : 0;
 }

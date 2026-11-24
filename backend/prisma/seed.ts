@@ -143,6 +143,7 @@ async function main() {
   // ---------- Resources ----------
   const now = Date.now();
   const daysAgo = (d: number) => new Date(now - d * 24 * 60 * 60 * 1000);
+  const daysFromNow = (d: number) => new Date(now + d * 24 * 60 * 60 * 1000);
 
   interface ResourceDef {
     employeeId: string;
@@ -161,7 +162,7 @@ async function main() {
     subCategory?: string;
     dateOfJoining?: string;
     priorExperienceYears?: number;
-    status?: "AVAILABLE" | "BENCH_COMMITTED" | "BENCH_TRUE" | "ON_ML";
+    status?: "BENCH_TRUE" | "BENCH_COMMITTED" | "ON_ML";
     benchDays?: number;
     currency?: string;
   }
@@ -225,7 +226,7 @@ async function main() {
         subCategory: def.subCategory,
         dateOfJoining: def.dateOfJoining ? new Date(def.dateOfJoining) : null,
         priorExperienceYears: def.priorExperienceYears ?? 0,
-        status: def.status ?? "AVAILABLE",
+        status: def.status ?? "BENCH_TRUE",
         benchSince: def.benchDays !== undefined ? daysAgo(def.benchDays) : null,
         sourceSystem: "SEED",
       },
@@ -242,7 +243,7 @@ async function main() {
         portfolioId: def.portfolioId,
         costRate: def.costRate,
         currency: def.currency ?? "USD",
-        status: def.status ?? "AVAILABLE",
+        status: def.status ?? "BENCH_TRUE",
         benchSince: def.benchDays !== undefined ? daysAgo(def.benchDays) : null,
         sourceSystem: "SEED",
       },
@@ -278,15 +279,15 @@ async function main() {
   // ---------- Allocations (drive resource lifecycle states) ----------
 
   // Active allocations -> ALLOCATED
-  await createAllocation(resources["E1001"].id, projects["FIN-P1"].id, tasksByProject["FIN-P1"].id, fin.id, 100, daysAgo(60), null, rmg.id, "ACTIVE", "Lead Engineer", "Venkat");
-  await createAllocation(resources["E1002"].id, projects["FIN-P2"].id, tasksByProject["FIN-P2"].id, fin.id, 80, daysAgo(30), null, rmg.id, "ACTIVE", "Solution Architect", "Venkat");
+  await createAllocation(resources["E1001"].id, projects["FIN-P1"].id, tasksByProject["FIN-P1"].id, fin.id, 100, daysAgo(60), daysFromNow(14), rmg.id, "ACTIVE", "Lead Engineer", "Venkat");
+  await createAllocation(resources["E1002"].id, projects["FIN-P2"].id, tasksByProject["FIN-P2"].id, fin.id, 80, daysAgo(30), daysFromNow(45), rmg.id, "ACTIVE", "Solution Architect", "Venkat");
   await createAllocation(resources["E1005"].id, projects["HC-P1"].id, tasksByProject["HC-P1"].id, health.id, 100, daysAgo(90), null, rmg2.id, "ACTIVE", "Delivery Manager", "Dhanasekar");
   await createAllocation(resources["E1008"].id, projects["PS-P1"].id, tasksByProject["PS-P1"].id, publicSector.id, 50, daysAgo(10), null, rmg2.id, "ACTIVE", "Change Manager", "Laxman");
   await createAllocation(resources["E1011"].id, projects["AIML-P1"].id, tasksByProject["AIML-P1"].id, aiMl.id, 100, daysAgo(45), null, rmg2.id, "ACTIVE", "ML Engineer", "Vamsi");
   await prisma.resource.updateMany({ where: { id: { in: [resources["E1001"].id, resources["E1002"].id, resources["E1005"].id, resources["E1008"].id] } }, data: { status: "ALLOCATED" } });
   await prisma.resource.update({ where: { id: resources["E1011"].id }, data: { status: "ALLOCATED", subCategory: "Internal Project" } });
 
-  // Scheduled future allocation -> BENCH_COMMITTED
+  // Scheduled future allocation -> committed bench
   await createAllocation(resources["E1003"].id, projects["FIN-P2"].id, tasksByProject["FIN-P2"].id, fin.id, 100, new Date(now + 7 * 24 * 60 * 60 * 1000), null, rmg.id, "SCHEDULED", "Data Scientist", "Venkat");
   await prisma.resource.update({ where: { id: resources["E1003"].id }, data: { status: "BENCH_COMMITTED", benchSince: daysAgo(3) } });
 
@@ -296,8 +297,9 @@ async function main() {
   // True bench, recently benched (5 days) -> should NOT trigger aging alert yet
   await prisma.resource.update({ where: { id: resources["E1011"].id }, data: { status: "BENCH_TRUE", benchSince: daysAgo(5) } });
 
-  // A past closed allocation to give E1006 some history, now back to Available
+  // A past closed allocation to give E1006 some history, now on true bench
   await createAllocation(resources["E1006"].id, projects["HC-P1"].id, tasksByProject["HC-P1"].id, health.id, 100, daysAgo(120), daysAgo(40), rmg2.id, "CLOSED", "Full Stack Engineer", "Adharsh");
+  await prisma.resource.update({ where: { id: resources["E1006"].id }, data: { status: "BENCH_TRUE", benchSince: daysAgo(40) } });
 
   await prisma.maternityLeaveRequest.create({
     data: {
@@ -429,7 +431,7 @@ async function main() {
     });
   }
 
-  // Remaining resources (E1004, E1009, E1010, E1012) stay AVAILABLE (already default).
+  // Remaining resources (E1004, E1009, E1010, E1012) stay BENCH (already default).
 
   console.log("Seed complete.");
   console.log(`Demo login password for all seeded users: ${DEMO_PASSWORD}`);

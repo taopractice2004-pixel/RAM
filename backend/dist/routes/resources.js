@@ -17,14 +17,13 @@ function redactCost(resource, user) {
 function presentResource(resource) {
     const allocations = resource.allocations ?? [];
     const allocationSummary = (0, resourcePresentation_1.deriveAllocationSummary)(allocations);
-    const firstActiveProject = allocations.find((a) => a.status === "ACTIVE")?.project;
     return {
         ...resource,
         taoExperienceYears: (0, resourcePresentation_1.deriveTaoExperienceYears)(resource.dateOfJoining ?? null),
         totalYearsExperience: (0, resourcePresentation_1.deriveTotalYearsExperience)(resource.priorExperienceYears ?? 0, resource.dateOfJoining ?? null),
         daysOnBench: (0, resourcePresentation_1.deriveBenchAgingDays)(resource),
         projectedBenchStartDate: (0, resourcePresentation_1.deriveProjectedBenchStartDate)(allocations),
-        subCategory: (0, resourcePresentation_1.deriveDefaultSubCategory)({ status: resource.status, subCategory: resource.subCategory }, { isInternalProject: firstActiveProject?.isInternalProject, billingDelayed: firstActiveProject?.billingDelayed }),
+        subCategory: (0, resourcePresentation_1.deriveBenchSubCategory)(resource),
         ...allocationSummary,
     };
 }
@@ -39,8 +38,8 @@ function presentResource(resource) {
  */
 router.get("/", async (req, res) => {
     const { q, managerName, certification, designation, country, gender, skills, // comma-separated skill names
-    minExperience, maxCost, minCost, location, status, // comma-separated ResourceStatus values
-    portfolioId, willingToRelocate, page = "1", pageSize = "25", } = req.query;
+    minExperience, minTaoExperience, maxCost, minCost, location, status, // comma-separated ResourceStatus values
+    portfolioId, willingToRelocate, subCategory, page = "1", pageSize = "25", } = req.query;
     const where = {};
     if (portfolioId)
         where.portfolioId = portfolioId;
@@ -60,6 +59,8 @@ router.get("/", async (req, res) => {
         where.status = { in: status.split(",") };
     else
         where.status = { not: "TERMINATED" };
+    if (subCategory)
+        where.subCategory = { contains: subCategory, mode: "insensitive" };
     // Cost-range filtering is only meaningful for roles that can ever see cost data;
     // for everyone else it would act as a blind oracle on a field they can't view.
     if ((minCost || maxCost) && (0, rbac_1.canEverViewCost)(req.user.role)) {
@@ -72,7 +73,6 @@ router.get("/", async (req, res) => {
     if (q) {
         where.OR = [
             { name: { contains: q, mode: "insensitive" } },
-            { email: { contains: q, mode: "insensitive" } },
             { employeeId: { contains: q, mode: "insensitive" } },
         ];
     }
@@ -90,6 +90,10 @@ router.get("/", async (req, res) => {
             ...(where.skills ?? {}),
             some: { ...(where.skills?.some ?? {}), yearsExperience: { gte: Number(minExperience) } },
         };
+    }
+    if (minTaoExperience) {
+        const minDateOfJoining = new Date(Date.now() - Number(minTaoExperience) * 365.25 * 24 * 60 * 60 * 1000);
+        where.dateOfJoining = { lte: minDateOfJoining };
     }
     const take = Math.min(Number(pageSize) || 25, 100);
     const skip = (Math.max(Number(page) || 1, 1) - 1) * take;

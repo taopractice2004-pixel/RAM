@@ -1,12 +1,14 @@
-import { useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+
+const BENCH_FEATURE_ENABLED = false;
 
 const NAV = [
   { to: "/", label: "Dashboard", roles: null },
-  { to: "/resources", label: "Resources", roles: null },
-  { to: "/allocations", label: "Allocations", roles: null },
-  { to: "/bench", label: "Bench", roles: null },
+  { to: "/resources", label: "Resources & Allocations", roles: null },
+  { to: "/imports", label: "Imports", roles: ["ADMIN", "RMG", "HR"] },
+  ...(BENCH_FEATURE_ENABLED ? [{ to: "/bench", label: "Bench", roles: null }] : []),
   { to: "/alerts", label: "Alerts", roles: null },
   { to: "/demand", label: "Demand", roles: ["TA"] },
   { to: "/approvals", label: "Approvals", roles: ["ADMIN", "RMG", "HR"] },
@@ -14,12 +16,12 @@ const NAV = [
   { to: "/admin", label: "Admin", roles: ["ADMIN", "RMG", "HR"] },
 ];
 
-const NAV_ICONS = ["⌂", "▦", "⇄", "◉", "!", "+", "✓", "▤", "⚙"];
+const NAV_ICONS = ["⌂", "▦", "⇧", "◉", "!", "+", "✓", "▤", "⚙"];
 
 const NAV_LABELS: Record<string, string> = {
   "⌂": "Dashboard",
-  "▦": "Resources",
-  "⇄": "Allocations",
+  "▦": "Resources & Allocations",
+  "⇧": "Imports",
   "◉": "Bench",
   "!": "Alerts",
   "+": "Demand",
@@ -31,17 +33,38 @@ const NAV_LABELS: Record<string, string> = {
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [workspaceExpanded, setWorkspaceExpanded] = useState(false);
 
   function handleLogout() {
     logout();
     navigate("/login");
   }
 
+  const isAlerts = location.pathname.startsWith("/alerts");
+  const isResources = location.pathname.startsWith("/resources");
+  const isReports = location.pathname.startsWith("/reports");
+  const isDashboard = location.pathname === "/";
+
+  useEffect(() => {
+    if (!workspaceExpanded) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeExpanded = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setWorkspaceExpanded(false);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeExpanded);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeExpanded);
+    };
+  }, [workspaceExpanded]);
+
   return (
     <div className="min-h-screen flex">
-      <aside className={`${sidebarCollapsed ? "w-16" : "w-60"} flex shrink-0 flex-col bg-[#1e3a8a] text-white shadow-lg transition-[width] duration-300`}>
+      {!workspaceExpanded && <aside className={`${sidebarCollapsed ? "w-16" : "w-60"} flex shrink-0 flex-col bg-[#1e3a8a] text-white shadow-lg transition-[width] duration-300`}>
         <div className={`flex min-h-20 items-center border-b border-white/15 ${sidebarCollapsed ? "justify-center px-2" : "gap-3 px-4"}`}>
           {!sidebarCollapsed && <>
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15 text-lg font-bold shadow-sm">R</div>
@@ -66,10 +89,13 @@ export default function Layout() {
           })}
         </nav>
         {!sidebarCollapsed && <div className="border-t border-white/15 px-4 py-4 text-xs text-white/65">Phase 1 — Core Lifecycle MVP</div>}
-      </aside>
+      </aside>}
 
-      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex min-h-16 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-4 shadow-sm backdrop-blur-sm sm:px-6">
+      <div className={`flex min-h-screen min-w-0 flex-1 flex-col ${workspaceExpanded ? "fixed inset-0 z-[70] bg-slate-50" : ""}`}>
+        {workspaceExpanded ? <header className="sticky top-0 z-20 flex min-h-16 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 shadow-sm sm:px-6">
+          <strong className="text-sm text-slate-900">Expanded workspace</strong>
+          <button type="button" className="btn-secondary shrink-0" aria-label="Exit expanded workspace" onClick={() => setWorkspaceExpanded(false)}>⤡ Exit expanded view</button>
+        </header> : <header className="sticky top-0 z-20 flex min-h-16 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-4 shadow-sm backdrop-blur-sm sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-600 to-teal-600 text-sm font-semibold text-white shadow-sm" aria-hidden="true">
               {user?.name?.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase() || "?"}
@@ -79,9 +105,12 @@ export default function Layout() {
               <span className="badge mt-0.5 bg-brand-50 text-brand-700">{user?.role}</span>
             </div>
           </div>
-          <button type="button" className="btn-secondary shrink-0" onClick={handleLogout}>Log out</button>
-        </header>
-        <main className="flex-1 overflow-y-auto p-6">
+          <div className="flex shrink-0 items-center gap-2">
+            {!isResources && !isReports && !isDashboard && <button type="button" className="btn-secondary" aria-label="Expand workspace" title="Expand workspace" onClick={() => setWorkspaceExpanded(true)}><span className="sm:hidden">⤢</span><span className="hidden sm:inline">⤢ Expand workspace</span></button>}
+            <button type="button" className="btn-secondary" onClick={handleLogout}>Log out</button>
+          </div>
+        </header>}
+        <main className={`flex-1 overflow-y-auto ${isAlerts ? "bg-[#f4f6fb] p-0" : "p-6"}`}>
           <Outlet />
         </main>
       </div>

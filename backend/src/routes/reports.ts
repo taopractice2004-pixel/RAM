@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../prisma";
+import { canViewSensitiveResourceData } from "../middleware/rbac";
 import { portfolioReadWhere } from "../utils/scope";
 import { getBenchConfig } from "../services/benchService";
 import { toCsv } from "../utils/csv";
@@ -62,14 +63,13 @@ router.get("/capacity", async (req, res) => {
     include: { portfolio: true, skills: { include: { skill: true } } },
   });
 
-  const byPortfolio = new Map<string, { portfolio: string; available: number; allocated: number; benchCommitted: number; benchTrue: number; onMl: number }>();
+  const byPortfolio = new Map<string, { portfolio: string; allocated: number; benchCommitted: number; benchTrue: number; onMl: number }>();
   for (const r of resources) {
     const key = r.portfolio.name;
     if (!byPortfolio.has(key)) {
-      byPortfolio.set(key, { portfolio: key, available: 0, allocated: 0, benchCommitted: 0, benchTrue: 0, onMl: 0 });
+      byPortfolio.set(key, { portfolio: key, allocated: 0, benchCommitted: 0, benchTrue: 0, onMl: 0 });
     }
     const entry = byPortfolio.get(key)!;
-    if (r.status === "AVAILABLE") entry.available++;
     if (r.status === "ALLOCATED") entry.allocated++;
     if (r.status === "BENCH_COMMITTED") entry.benchCommitted++;
     if (r.status === "BENCH_TRUE") entry.benchTrue++;
@@ -182,6 +182,43 @@ router.get("/bench-aging", async (req, res) => {
   }
 
   respond(req, res, filteredRows, "bench_aging_report.csv");
+});
+
+router.get("/bench-pivots", async (req, res) => {
+  const resources = await prisma.resource.findMany({
+    where: {
+      ...portfolioReadWhere(req),
+      OR: [
+        { status: { in: ["BENCH_COMMITTED", "BENCH_TRUE", "ON_ML"] } },
+        { allocations: { some: { status: { in: ["ACTIVE", "SCHEDULED"] }, project: { billingDelayed: true } } } },
+        { subCategory: { in: ["Proactive hire", "Proactive Hire"] } },
+      ],
+    },
+    include: { portfolio: true },
+  });
+
+  const costAllowed = resources.some((resource) => canViewSensitiveResourceData(req.user!, resource.portfolioId));
+  const categories = ["Bench (Allocated <60)", "Billing Delay", "Committed Bench", "Corporate Bench", "ML", "Proactive Hire", "Termination"];
+  const managers = new Map<string, { manager: string; counts: Record<string, number>; costs: Record<string, number>; totalCount: number; totalCost: number }>();
+  for (const resource of resources) {
+    const manager = resource.managerName || "Unassigned";
+    const row = managers.get(manager) ?? { manager, counts: {}, costs: {}, totalCount: 0, totalCost: 0 };
+    const category = resource.subCategory || "Committed Bench";
+    row.counts[category] = (row.counts[category] ?? 0) + 1;
+    row.totalCount++;
+    if (canViewSensitiveResourceData(req.user!, resource.portfolioId) && resource.costRate != null) {
+      const cost = Number(resource.costRate);
+      row.costs[category] = (row.costs[category] ?? 0) + cost;
+      row.totalCost += cost;
+    }
+    managers.set(manager, row);
+  }
+  const countRows: Record<string, string | number>[] = [...managers.values()].map((row) => ({ manager: row.manager, ...Object.fromEntries(categories.map((category) => [category, row.counts[category] ?? 0])), grandTotal: row.totalCount }));
+  const countGrand = Object.fromEntries(categories.map((category) => [category, countRows.reduce((sum, row) => sum + Number(row[category] ?? 0), 0)]));
+  countRows.push({ manager: "Grand Total", ...countGrand, grandTotal: countRows.reduce((sum, row) => sum + Number(row.grandTotal ?? 0), 0) });
+  const costRows: Record<string, string | number>[] = costAllowed ? [...managers.values()].map((row) => ({ manager: row.manager, ...Object.fromEntries(categories.map((category) => [category, row.costs[category] ?? 0])), grandTotal: row.totalCost })) : [];
+  if (costAllowed) costRows.push({ manager: "Grand Total", ...Object.fromEntries(categories.map((category) => [category, costRows.reduce((sum, row) => sum + Number(row[category] ?? 0), 0)])), grandTotal: costRows.reduce((sum, row) => sum + Number(row.grandTotal ?? 0), 0) });
+  res.json({ categories, countRows, costRows, costVisible: costAllowed });
 });
 
 router.get("/termination-trends", async (req, res) => {

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { DemandRequest, Portfolio } from "../types";
+import { DemandRequest, Portfolio, ResourceRecommendation } from "../types";
 
 const STAGES = ["DRAFT", "PIPELINE", "COMMITTED", "FULFILLED", "CANCELLED"];
 
@@ -36,10 +36,27 @@ export default function Demand() {
     notes: "",
   });
   const [csvText, setCsvText] = useState("portfolioId,projectName,projectCode,clientName,roleName,location,requiredSkills,minProficiency,minExperienceYears,requiredCertifications,requiredFte,startDate,endDate,status,confidenceStage,notes\n");
+  const [skipDemand, setSkipDemand] = useState(false);
 
   const canManageDemand = user?.role === "TA";
   const portfoliosQuery = useQuery<Portfolio[]>({ queryKey: ["portfolios"], queryFn: async () => (await api.get("/portfolios")).data });
   const availablePortfolios = portfoliosQuery.data ?? portfolios;
+  const requiredSkills = useMemo(() => form.requiredSkills.split(",").map((skill) => skill.trim()).filter(Boolean), [form.requiredSkills]);
+  const resourceMatchesQuery = useQuery<ResourceRecommendation[]>({
+    queryKey: ["demand-resource-matches", user?.id, user?.role, user?.authorizedPortfolioIds, form.requiredSkills, form.requiredFte, form.startDate, form.endDate, form.location, form.portfolioId, form.minProficiency, form.minExperienceYears, form.requiredCertifications],
+    enabled: Boolean(user && requiredSkills.length),
+    queryFn: async () => (await api.get("/resources/recommendations/search", {
+      params: {
+        skills: requiredSkills.join(","),
+        minProficiency: form.minProficiency || undefined,
+        minExperience: form.minExperienceYears || undefined,
+        certifications: form.requiredCertifications || undefined,
+        ...(form.requiredFte && form.startDate && form.endDate ? { requiredFte: form.requiredFte, startDate: form.startDate, endDate: form.endDate } : {}),
+        location: form.location || undefined,
+        portfolioId: form.portfolioId || undefined,
+      },
+    })).data,
+  });
 
   const { data: demand = [], isLoading } = useQuery<DemandRequest[]>({
     queryKey: ["demand"],
@@ -61,6 +78,7 @@ export default function Demand() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["demand"] });
+      setSkipDemand(false);
       setForm({ ...form, projectName: "", projectCode: "", clientName: "", roleName: "", location: "", requiredSkills: "", minProficiency: "", minExperienceYears: "", requiredCertifications: "", requiredFte: "1", startDate: "", endDate: "", status: "DRAFT", confidenceStage: "DRAFT", notes: "" });
     },
   });
@@ -137,7 +155,7 @@ export default function Demand() {
             <input className="input" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
           </label>
           <label className="label">Required skills (comma-separated)
-            <input className="input" value={form.requiredSkills} onChange={(e) => setForm({ ...form, requiredSkills: e.target.value })} />
+            <input className="input" value={form.requiredSkills} onChange={(e) => { setSkipDemand(false); setForm({ ...form, requiredSkills: e.target.value }); }} />
           </label>
           <label className="label">Min proficiency
             <input className="input" type="number" min="1" max="5" value={form.minProficiency} onChange={(e) => setForm({ ...form, minProficiency: e.target.value })} />
@@ -174,6 +192,10 @@ export default function Demand() {
         <button className="btn-primary" onClick={() => createMutation.mutate()} disabled={createMutation.isPending || !form.projectName || !form.roleName || !form.startDate}>
           {createMutation.isPending ? "Saving..." : "Create demand"}
         </button>
+        {requiredSkills.length > 0 && <section className="mt-4 border-t border-slate-200 pt-4" aria-live="polite">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-sm font-semibold text-slate-800">Matching existing resources</h3><p className="text-xs text-slate-500">Live skill matches, ranked by fit and availability for the requested dates.</p></div>{resourceMatchesQuery.data?.some((match) => match.availableFte !== undefined && match.availableFte >= Number(form.requiredFte)) && <button type="button" className="btn-secondary" onClick={() => setSkipDemand(true)}>Use existing resources — skip demand</button>}</div>
+          {skipDemand ? <p className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">Demand creation skipped. Review the matching employees below and coordinate allocation through the existing workflow.</p> : resourceMatchesQuery.isLoading ? <p className="py-3 text-sm text-slate-500">Searching Resource Master...</p> : resourceMatchesQuery.isError ? <p role="alert" className="py-3 text-sm text-red-600">Could not search existing resources. You can retry by updating the required skills or dates.</p> : resourceMatchesQuery.data?.length ? <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="border-b border-slate-200 text-xs text-slate-500"><th className="py-2 pr-3">Employee</th><th className="py-2 pr-3">Role</th><th className="py-2 pr-3">Portfolio</th><th className="py-2 pr-3">Matching skills</th><th className="py-2 pr-3">Availability</th><th className="py-2 pr-3">Location</th></tr></thead><tbody>{resourceMatchesQuery.data.map(({ resource, matchedSkills, availableFte, matchScore }) => <tr key={resource.id} className="border-b border-slate-100"><td className="py-2 pr-3"><span className="font-medium">{resource.name}</span><span className="block text-xs text-slate-500">{resource.employeeId}</span></td><td className="py-2 pr-3">{resource.role || resource.designation || "—"}</td><td className="py-2 pr-3">{resource.portfolio?.name ?? "—"}</td><td className="py-2 pr-3">{matchedSkills.join(", ")}</td><td className="py-2 pr-3"><span className={availableFte !== undefined && availableFte >= Number(form.requiredFte) ? "font-medium text-emerald-700" : "text-amber-700"}>{availableFte == null ? "Not calculated" : `${Math.round(availableFte * 100)}% FTE`}</span></td><td className="py-2 pr-3">{resource.workLocation || resource.location || "—"}</td></tr>)}</tbody></table><p className="mt-2 text-xs text-slate-500">Match score: resources are ranked by skill fit and requested-period availability. Availability does not reserve or allocate an employee.</p></div> : <p className="py-3 text-sm text-slate-500">No matching existing employees found for these skills.</p>}
+        </section>}
       </div>
 
       <div className="card p-4 space-y-4">

@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const prisma_1 = require("../prisma");
+const rbac_1 = require("../middleware/rbac");
 const resourcePresentation_1 = require("../utils/resourcePresentation");
 const router = (0, express_1.Router)();
 /**
@@ -12,21 +13,53 @@ const router = (0, express_1.Router)();
  * resource reuse POST /api/allocations (FR-4.4), which remains portfolio-gated.
  */
 router.get("/", async (req, res) => {
-    const { classification } = req.query;
-    const where = {
-        status: classification
-            ? { in: classification.split(",") }
-            : { in: ["BENCH_COMMITTED", "BENCH_TRUE"] },
-    };
+    const { classification, status, subCategory, managerName, portfolioId, location, country, skill, minExperience, minTaoExperience, minAge, maxAge } = req.query;
+    const where = classification
+        ? { status: { in: classification.split(",") } }
+        : {
+            OR: [
+                { status: { in: ["BENCH_COMMITTED", "BENCH_TRUE", "ON_ML"] } },
+                { allocations: { some: { status: { in: ["ACTIVE", "SCHEDULED"] }, project: { billingDelayed: true } } } },
+                { subCategory: { in: ["Proactive hire", "Proactive Hire"] } },
+            ],
+        };
+    if (status)
+        where.status = { in: status.split(",") };
+    if (managerName)
+        where.managerName = { contains: managerName, mode: "insensitive" };
+    if (portfolioId)
+        where.portfolioId = portfolioId;
+    if (country)
+        where.country = { contains: country, mode: "insensitive" };
+    if (skill)
+        where.skills = { some: { skill: { name: { contains: skill, mode: "insensitive" } } } };
+    if (minExperience)
+        where.priorExperienceYears = { gte: Number(minExperience) };
+    if (minTaoExperience) {
+        where.dateOfJoining = { lte: new Date(Date.now() - Number(minTaoExperience) * 365.25 * 24 * 60 * 60 * 1000) };
+    }
+    if (minAge || maxAge) {
+        const now = Date.now();
+        where.benchSince = {
+            ...(minAge ? { lte: new Date(now - Number(minAge) * 24 * 60 * 60 * 1000) } : {}),
+            ...(maxAge ? { gte: new Date(now - Number(maxAge) * 24 * 60 * 60 * 1000) } : {}),
+        };
+    }
+    if (location) {
+        const locationFilter = { OR: [{ location: { contains: location, mode: "insensitive" } }, { workLocation: { contains: location, mode: "insensitive" } }] };
+        if (where.OR)
+            where.AND = [locationFilter];
+        else
+            Object.assign(where, locationFilter);
+    }
     const resources = await prisma_1.prisma.resource.findMany({
         where,
         include: {
             portfolio: true,
             skills: { include: { skill: true } },
             allocations: {
-                where: { status: "SCHEDULED" },
-                orderBy: { startDate: "asc" },
-                take: 1,
+                where: { status: { in: ["ACTIVE", "SCHEDULED"] } },
+                orderBy: [{ status: "asc" }, { startDate: "asc" }],
                 include: { project: true },
             },
         },
@@ -38,11 +71,13 @@ router.get("/", async (req, res) => {
         taoExperienceYears: (0, resourcePresentation_1.deriveTaoExperienceYears)(r.dateOfJoining),
         totalYearsExperience: (0, resourcePresentation_1.deriveTotalYearsExperience)(r.priorExperienceYears, r.dateOfJoining),
         daysOnBench: (0, resourcePresentation_1.deriveBenchAgingDays)(r, now),
-        nextScheduledAllocation: r.allocations[0] ?? null,
+        nextScheduledAllocation: r.allocations.find((allocation) => allocation.status === "SCHEDULED") ?? null,
         projectedBenchStartDate: (0, resourcePresentation_1.deriveProjectedBenchStartDate)(r.allocations),
-        subCategory: (0, resourcePresentation_1.deriveDefaultSubCategory)({ status: r.status, subCategory: r.subCategory }),
+        subCategory: (0, resourcePresentation_1.deriveBenchSubCategory)(r, now),
+        role: r.designation,
+        costRate: (0, rbac_1.canViewSensitiveResourceData)(req.user, r.portfolioId) ? r.costRate : null,
         ...(0, resourcePresentation_1.deriveAllocationSummary)(r.allocations),
-    }));
+    })).filter((resource) => !subCategory || resource.subCategory?.toLocaleLowerCase() === subCategory.toLocaleLowerCase());
     res.json(enriched);
 });
 exports.default = router;

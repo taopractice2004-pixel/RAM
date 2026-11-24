@@ -1,6 +1,16 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { api } from "../api/client";
-import { AuthUser, Portfolio } from "../types";
+import { AuthUser, Portfolio, Resource } from "../types";
+
+export const LIFECYCLE_ACTION_ROLES: AuthUser["role"][] = ["ADMIN", "RMG"];
+
+export function canEditAllocations(user: AuthUser | null | undefined, portfolioIds: string[] = []) {
+  return Boolean(user && (LIFECYCLE_ACTION_ROLES.includes(user.role) && (user.role === "ADMIN" || portfolioIds.every((id) => user.authorizedPortfolioIds.includes(id)))));
+}
+
+export function canAllocateResource(user: AuthUser | null | undefined, resource: Resource) {
+  return canEditAllocations(user, [resource.portfolioId]) && !["TERMINATED", "ON_ML"].includes(resource.status);
+}
 
 interface AuthContextValue {
   user: AuthUser | null;

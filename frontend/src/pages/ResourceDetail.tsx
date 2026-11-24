@@ -84,7 +84,7 @@ export default function ResourceDetail() {
   // FR-2.4: partial allocation across projects. An ALLOCATED resource can still take
   // another project while under 100% capacity; the backend's capacity check is the
   // authority on whether the new assignment fits, so it stays selectable here.
-  const canAllocate = canAct && ["AVAILABLE", "BENCH_COMMITTED", "BENCH_TRUE", "ALLOCATED"].includes(resource.status);
+  const canAllocate = canAct && ["BENCH_COMMITTED", "BENCH_TRUE", "ALLOCATED"].includes(resource.status);
   const canReallocate = canAct && activeAllocations.length > 0;
   const canTerminateNow = canTerminate && resource.status !== "ON_ML";
 

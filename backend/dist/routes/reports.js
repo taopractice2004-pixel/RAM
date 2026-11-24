@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const prisma_1 = require("../prisma");
+const rbac_1 = require("../middleware/rbac");
 const scope_1 = require("../utils/scope");
 const benchService_1 = require("../services/benchService");
 const csv_1 = require("../utils/csv");
@@ -171,6 +172,42 @@ router.get("/bench-aging", async (req, res) => {
         });
     }
     respond(req, res, filteredRows, "bench_aging_report.csv");
+});
+router.get("/bench-pivots", async (req, res) => {
+    const resources = await prisma_1.prisma.resource.findMany({
+        where: {
+            ...(0, scope_1.portfolioReadWhere)(req),
+            OR: [
+                { status: { in: ["BENCH_COMMITTED", "BENCH_TRUE", "ON_ML"] } },
+                { allocations: { some: { status: { in: ["ACTIVE", "SCHEDULED"] }, project: { billingDelayed: true } } } },
+                { subCategory: { in: ["Proactive hire", "Proactive Hire"] } },
+            ],
+        },
+        include: { portfolio: true },
+    });
+    const costAllowed = resources.some((resource) => (0, rbac_1.canViewSensitiveResourceData)(req.user, resource.portfolioId));
+    const categories = ["Bench (Allocated <60)", "Billing Delay", "Committed Bench", "Corporate Bench", "ML", "Proactive Hire", "Termination"];
+    const managers = new Map();
+    for (const resource of resources) {
+        const manager = resource.managerName || "Unassigned";
+        const row = managers.get(manager) ?? { manager, counts: {}, costs: {}, totalCount: 0, totalCost: 0 };
+        const category = resource.subCategory || "Committed Bench";
+        row.counts[category] = (row.counts[category] ?? 0) + 1;
+        row.totalCount++;
+        if ((0, rbac_1.canViewSensitiveResourceData)(req.user, resource.portfolioId) && resource.costRate != null) {
+            const cost = Number(resource.costRate);
+            row.costs[category] = (row.costs[category] ?? 0) + cost;
+            row.totalCost += cost;
+        }
+        managers.set(manager, row);
+    }
+    const countRows = [...managers.values()].map((row) => ({ manager: row.manager, ...Object.fromEntries(categories.map((category) => [category, row.counts[category] ?? 0])), grandTotal: row.totalCount }));
+    const countGrand = Object.fromEntries(categories.map((category) => [category, countRows.reduce((sum, row) => sum + Number(row[category] ?? 0), 0)]));
+    countRows.push({ manager: "Grand Total", ...countGrand, grandTotal: countRows.reduce((sum, row) => sum + Number(row.grandTotal ?? 0), 0) });
+    const costRows = costAllowed ? [...managers.values()].map((row) => ({ manager: row.manager, ...Object.fromEntries(categories.map((category) => [category, row.costs[category] ?? 0])), grandTotal: row.totalCost })) : [];
+    if (costAllowed)
+        costRows.push({ manager: "Grand Total", ...Object.fromEntries(categories.map((category) => [category, costRows.reduce((sum, row) => sum + Number(row[category] ?? 0), 0)])), grandTotal: costRows.reduce((sum, row) => sum + Number(row.grandTotal ?? 0), 0) });
+    res.json({ categories, countRows, costRows, costVisible: costAllowed });
 });
 router.get("/termination-trends", async (req, res) => {
     const { portfolioId, status, reasonCode, from, to, summary } = req.query;

@@ -6,6 +6,7 @@ exports.deriveTotalYearsExperience = deriveTotalYearsExperience;
 exports.deriveBenchAgingDays = deriveBenchAgingDays;
 exports.deriveAllocationSummary = deriveAllocationSummary;
 exports.deriveProjectedBenchStartDate = deriveProjectedBenchStartDate;
+exports.deriveBenchSubCategory = deriveBenchSubCategory;
 exports.deriveDefaultSubCategory = deriveDefaultSubCategory;
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 const MS_PER_YEAR = MS_PER_DAY * 365.25;
@@ -46,6 +47,33 @@ function deriveProjectedBenchStartDate(allocations) {
     if (scheduled && scheduled.startDate <= active.endDate)
         return null;
     return active.endDate;
+}
+function deriveBenchSubCategory(resource, now = new Date()) {
+    const project = resource.allocations?.find((allocation) => allocation.status === "ACTIVE")?.project;
+    const category = resource.subCategory?.trim().toLowerCase();
+    if (resource.status === "ON_ML")
+        return "ML";
+    if (resource.status === "TERMINATED")
+        return "Termination";
+    if (project?.billingDelayed)
+        return "Billing Delay";
+    if (category === "proactive hire")
+        return "Proactive Hire";
+    if (category === "corporate bench")
+        return "Corporate Bench";
+    if (["BENCH_TRUE", "BENCH_COMMITTED", "AVAILABLE"].includes(resource.status)) {
+        const days = deriveBenchAgingDays({
+            status: resource.status,
+            benchSince: resource.benchSince ?? null,
+            dateOfJoining: resource.dateOfJoining ?? null,
+        }, now);
+        if (days !== null)
+            return days >= 60 ? "Corporate Bench" : "Bench (Allocated <60)";
+        return resource.subCategory;
+    }
+    if (project?.isInternalProject)
+        return "Corporate Bench";
+    return deriveDefaultSubCategory({ status: resource.status, subCategory: resource.subCategory });
 }
 function deriveDefaultSubCategory(resource, opts) {
     if (resource.status === "ON_ML")

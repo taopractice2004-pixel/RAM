@@ -8,6 +8,7 @@ exports.processAllocationTransitions = processAllocationTransitions;
 const prisma_1 = require("../prisma");
 const audit_1 = require("../utils/audit");
 const resourcePresentation_1 = require("../utils/resourcePresentation");
+const notifications_1 = require("../routes/notifications");
 const DEFAULT_COMMITTED_WINDOW_DAYS = 14;
 const DEFAULT_TRUE_BENCH_THRESHOLD_DAYS = 30;
 const DEFAULT_AVAILABLE_TO_BENCH_DAYS = 60;
@@ -116,8 +117,11 @@ async function runBenchAgingAlerts() {
         if (alreadyNotifiedToday)
             continue;
         const message = `${resource.name} (${resource.employeeId}) has been on True Bench for ${Math.floor(daysOnBench)} days, exceeding the ${config.trueBenchAgingThresholdDays}-day threshold.`;
+        const rule = await prisma_1.prisma.notificationRule.findUnique({ where: { key: "BENCH_AGEING" } });
+        if (rule?.enabled === false)
+            continue;
         for (const user of [...rmgUsers, ...taUsers]) {
-            await prisma_1.prisma.notification.create({
+            const notification = await prisma_1.prisma.notification.create({
                 data: {
                     userId: user.id,
                     type: "BENCH_AGING",
@@ -126,6 +130,7 @@ async function runBenchAgingAlerts() {
                     relatedEntityId: resource.id,
                 },
             });
+            await (0, notifications_1.deliverEmail)("BENCH_AGEING", user.email, `${resource.name} has been on bench for ${Math.floor(daysOnBench)} days`, message, notification.id);
         }
     }
 }

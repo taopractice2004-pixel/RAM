@@ -120,9 +120,9 @@ test("availability uses peak overlapping allocation and excludes unavailable sta
 
 test("status remains a secondary tie-break in the approved order", () => {
   assert.deepEqual(
-    ["AVAILABLE", "BENCH_TRUE", "BENCH_COMMITTED", "ALLOCATED"]
+    ["BENCH_TRUE", "BENCH_COMMITTED", "ALLOCATED"]
       .map(getRecommendationStatusTieBreakWeight),
-    [3, 2, 1, 0]
+    [2, 1, 0]
   );
   assert.equal(getRecommendationStatusTieBreakWeight("ON_ML"), -1);
   assert.equal(getRecommendationStatusWeight("ON_ML"), 0);
